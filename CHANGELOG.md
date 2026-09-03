@@ -1,5 +1,26 @@
 # Changelog
 
+## 2.1.0 - PlexonCraft Presentation Update
+
+- Redesigned recovered spawner item names and lore around the PlexonCraft primary/secondary color palette.
+- Added `<!italic>` to stock item formatting for clean non-italic Minecraft lore.
+- Replaced generic plugin-facing lore with concise collectible-style flavor text, creature metadata, placement state, and a PlexonCraft footer.
+- Reworked `messages.yml` into the PlexonCraft message theme with consistent success, warning, danger, muted, and secondary accent colors.
+- Replaced the old technical `PlexonSpawners` chat prefix with a cleaner player-facing `SPAWNERS »` presentation.
+- Improved player-facing recovery and Spawner Essence feedback.
+- Added safe migration of the exact stock 2.0.x spawner item style to the new 2.1 theme while preserving customized templates.
+- Added safe key-by-key migration of stock 2.0.x messages while preserving customized message values.
+- Updated Java fallback item templates to match the new theme when config values are missing.
+- Preserved the stable 2.0.2 break ownership, WildStacker compatibility, Silk Touch, Essence, XP, world, and Creative-mode logic.
+
+## 2.0.2 - Silk Touch Qualification Hotfix
+
+- Fixed operators/admins automatically qualifying for spawner recovery without Silk Touch.
+- Changed `plexonspawners.bypass.silk` to `default: false`.
+- Added `breaking.allow-silk-bypass-permission`, disabled by default.
+- A Silk Touch bypass now requires both the explicit config switch and the explicit permission.
+- Existing configs safely default to no bypass without requiring a reset.
+
 ## 2.0.1 - Spawner Ownership & WildStacker Compatibility
 
 - Fixed conflicts with other HIGHEST-priority spawner break listeners that could prevent PlexonSpawners from producing its own spawner/Essence outcome.
@@ -17,7 +38,7 @@
 - Redesigned the admin interface into focused 54-slot pages instead of one compact editor.
 - Added dedicated **Spawner Rules**, **Spawner Essence**, and **Mob Values** administration screens.
 - Removed references to unrelated plugins and raw implementation/config-path wording from the admin GUI.
-- Added fully explained GUI lore so each control describes its gameplay outcome before an admin changes it.
+- Added fully explained GUI lore so each control describes its gameplay outcome before an admin changes a setting.
 - Added configurable Essence drop chances for failed Silk Touch recovery attempts.
 - Added `essence.default-chance` with support for values from `0.0` to `100.0`, including decimal percentages.
 - Added per-mob Essence chance overrides alongside per-mob amount overrides.
