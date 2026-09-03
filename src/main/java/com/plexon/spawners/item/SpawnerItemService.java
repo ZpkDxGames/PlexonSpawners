@@ -19,6 +19,20 @@ import java.util.List;
 import java.util.Locale;
 
 public final class SpawnerItemService {
+    private static final String DEFAULT_NAME =
+        "<!italic><gradient:#56B9F2:#92E1FF><b>✦ %mob% Spawner</b></gradient>";
+    private static final List<String> DEFAULT_LORE = List.of(
+        "",
+        "<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>",
+        "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>",
+        "",
+        "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
+        "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>",
+        "",
+        "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
+        "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
+    );
+
     private final JavaPlugin plugin;
     private final NamespacedKey managedKey;
     private final NamespacedKey typeKey;
@@ -36,8 +50,10 @@ public final class SpawnerItemService {
 
     public void reload() {
         final FileConfiguration config = plugin.getConfig();
-        nameTemplate = config.getString("spawner-item.name", "<light_purple><b>%mob% Spawner</b></light_purple>");
-        loreTemplate = List.copyOf(config.getStringList("spawner-item.lore"));
+        nameTemplate = config.getString("spawner-item.name", DEFAULT_NAME);
+        loreTemplate = config.contains("spawner-item.lore")
+            ? List.copyOf(config.getStringList("spawner-item.lore"))
+            : DEFAULT_LORE;
     }
 
     public ItemStack createSpawner(final EntityType entityType, final int amount) {
