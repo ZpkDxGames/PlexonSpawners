@@ -172,7 +172,7 @@ spawner-item:
   # PlexonCraft footer. `%mob%` may be used on any line.
   lore:
     - ''
-    - '<!italic><#D8DEE9>A dormant cage bound to the'</#D8DEE9>'
+    - '<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>'
     - '<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>'
     - ''
     - '<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>'
