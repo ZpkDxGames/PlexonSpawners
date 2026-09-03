@@ -1,0 +1,56 @@
+# PlexonSpawners 1.0.0
+# Core gameplay is intentionally state-less: no database and no per-block tracking.
+
+breaking:
+  enabled: true
+
+  # Required Silk Touch enchantment level to recover the actual spawner.
+  # Set to 0 to allow every valid player break to recover the spawner.
+  required-silk-touch-level: 3
+
+  # If true, a qualifying break drops a PlexonSpawners spawner item.
+  drop-spawner-when-qualified: true
+
+  # Experience is disabled by default to avoid adding another farmable reward.
+  drop-experience: false
+
+  # Creative breaks normally destroy the spawner without producing currency/items.
+  creative-drops: false
+
+  # Empty means all worlds are enabled. World names are case-insensitive.
+  enabled-worlds: []
+
+essence:
+  enabled: true
+
+  # Default physical essence amount from a failed Silk Touch break.
+  default-amount: 1
+
+  # GROUND = normal item drop at the spawner location.
+  # INVENTORY = insert directly into the player's inventory and drop overflow.
+  delivery: GROUND
+
+  # Optional mob-specific amounts. This is currency valuation, not a reward table.
+  mob-overrides:
+    BLAZE: 3
+    CREEPER: 2
+    ENDERMAN: 3
+    WITHER_SKELETON: 4
+    IRON_GOLEM: 6
+
+  # The in-game editor writes the exact configured Bukkit ItemStack here.
+  # If absent, PlexonSpawners uses its built-in default Spawner Essence item.
+  item: null
+
+spawner-item:
+  name: '<gradient:#8A2BE2:#D56BFF><b>%mob% Spawner</b></gradient>'
+  lore:
+    - ''
+    - '<gray>Places a <white>%mob%</white> spawner.'
+    - ''
+    - '<dark_gray>Spawner Type:</dark_gray> <white>%mob%</white>'
+    - '<dark_gray>Managed by PlexonSpawners</dark_gray>'
+
+messages:
+  break-success-enabled: false
+  break-failed-enabled: false
