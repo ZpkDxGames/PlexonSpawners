@@ -24,9 +24,7 @@ public final class PlexonSpawners extends JavaPlugin {
     @Override
     public void onEnable() {
         saveDefaultConfig();
-        if (!getDataFolder().exists() && !getDataFolder().mkdirs()) {
-            getLogger().warning("Could not create plugin data directory.");
-        }
+        migrateConfig();
 
         messages = new MessageService(this);
         settings.reload(getConfig());
@@ -58,10 +56,6 @@ public final class PlexonSpawners extends JavaPlugin {
         );
         getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
 
-        if (getServer().getPluginManager().getPlugin("SilkSpawners") != null) {
-            getLogger().warning("SilkSpawners is installed. PlexonSpawners is standalone; running both may create conflicting spawner behavior.");
-        }
-
         getLogger().info("PlexonSpawners " + getPluginMeta().getVersion() + " enabled for Paper 26.2.");
     }
 
@@ -90,5 +84,25 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public PlexonSpawnersApi api() {
         return api;
+    }
+
+    private void migrateConfig() {
+        boolean changed = false;
+        if (!getConfig().contains("config-version")) {
+            getConfig().set("config-version", 2);
+            changed = true;
+        }
+        if (!getConfig().contains("essence.default-chance")) {
+            getConfig().set("essence.default-chance", 35.0);
+            changed = true;
+        }
+        if (getConfig().getInt("config-version", 1) < 2) {
+            getConfig().set("config-version", 2);
+            changed = true;
+        }
+        if (changed) {
+            saveConfig();
+            getLogger().info("Updated configuration defaults for PlexonSpawners 2.0.");
+        }
     }
 }

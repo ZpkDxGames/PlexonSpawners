@@ -1,18 +1,32 @@
-# PlexonSpawners 1.0.0
+# PlexonSpawners 2.0.0
 
-The first production release of **PlexonSpawners**, a lightweight standalone spawner-management plugin for Paper 26.2.
+PlexonSpawners 2.0 focuses on administration quality, configuration clarity, and making Spawner Essence a tunable physical currency rather than a guaranteed fallback item.
 
 ## Highlights
 
-- Recover typed spawners with a configurable Silk Touch requirement.
-- Failed recovery can produce configurable physical **Spawner Essence** instead of a spawner.
-- Essence is secured with a hidden PersistentDataContainer marker, so display-name/lore copies do not count as genuine currency.
-- Typed spawner items preserve their mob type when placed again.
-- Configure the Essence template directly from an item in an administrator's hand.
-- Use `/pspawners admin` for the in-game administration GUI.
-- Use console-friendly give commands for GUIPlus/shop integrations.
-- MiniMessage support for spawner item names, lore, and plugin messages.
-- No database or per-block persistence overhead is required for the core mechanic.
+- Completely redesigned `/pspawners admin` interface with separate **Spawner Rules**, **Spawner Essence**, and **Mob Values** pages.
+- Removed unrelated plugin references and raw configuration-path wording from the GUI.
+- Added detailed explanations directly to each GUI control so admins can understand the outcome before changing a setting.
+- Added configurable Essence drop chance after a failed Silk Touch recovery.
+- Added global and per-mob Essence chances from `0%` to `100%`, including decimal percentages.
+- Added per-mob amount + chance editing directly in-game.
+- Added reset-to-global behavior for mob overrides.
+- Added in-game controls for Essence delivery, break handling, XP drops, Creative drops, qualified spawner drops, and Silk Touch requirement.
+- Reworked `config.yml` into a fully documented reference with ranges, examples, and behavior notes.
+- Added safe migration for 1.x configurations while preserving existing custom values.
+- Maintains the database-free, low-overhead design of the 1.0 release.
+
+## Essence chance example
+
+With:
+
+```yaml
+essence:
+  default-chance: 35.0
+  default-amount: 1
+```
+
+A player who breaks a spawner without meeting the configured Silk Touch requirement has a 35% chance to receive one Spawner Essence. Mob-specific settings can override either value.
 
 ## Requirements
 
@@ -21,4 +35,4 @@ The first production release of **PlexonSpawners**, a lightweight standalone spa
 
 ## Server file
 
-Install `PlexonSpawners-1.0.0.jar` in the server's `plugins` directory and restart the server.
+Install `PlexonSpawners-2.0.0.jar` in the server's `plugins` directory and restart the server.
