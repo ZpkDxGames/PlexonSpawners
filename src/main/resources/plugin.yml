@@ -6,6 +6,12 @@ author: ZpkDxGames
 description: Standalone spawner handling and physical Spawner Essence currency for Paper.
 prefix: PlexonSpawners
 
+# PlexonSpawners intentionally loads before known spawner managers so its
+# HIGHEST-priority break listener can claim managed spawner breaks first.
+# WildStacker respects cancelled BlockBreakEvents, while PlexonSpawners uses a
+# stack-safe compatibility bridge to reduce its stack count by one.
+loadbefore: [WildStacker]
+
 commands:
   pspawners:
     description: PlexonSpawners administration command.
