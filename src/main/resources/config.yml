@@ -1,5 +1,5 @@
 # ============================================================================
-# PlexonSpawners 2.0.1 - Main Configuration
+# PlexonSpawners 2.0.2 - Main Configuration
 # ============================================================================
 # Most gameplay settings can also be changed in-game with:
 #   /pspawners admin
@@ -47,6 +47,19 @@ breaking:
   # Set to 0 if every valid player break should qualify regardless of the tool.
   # Range: 0-255.
   required-silk-touch-level: 3
+
+  # SILK TOUCH BYPASS PERMISSION
+  # false (recommended/default):
+  #   The configured Silk Touch level is authoritative for everyone, including
+  #   server operators and administrators. Merely being OP does NOT qualify.
+  #
+  # true:
+  #   Players who explicitly have `plexonspawners.bypass.silk` qualify even if
+  #   their held tool does not meet required-silk-touch-level.
+  #
+  # The permission itself is default:false in plugin.yml, so enabling this option
+  # still requires you to grant the permission intentionally.
+  allow-silk-bypass-permission: false
 
   # Controls the result after the player DOES meet the Silk Touch requirement.
   # true  -> drop this plugin's typed spawner item, preserving the mob type.
