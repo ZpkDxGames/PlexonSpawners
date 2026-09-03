@@ -1,31 +1,42 @@
-# PlexonSpawners 2.0.2
+# PlexonSpawners 2.1.0
 
-PlexonSpawners 2.0.2 fixes Silk Touch qualification for operators and administrators.
+PlexonSpawners 2.1.0 is a presentation and migration update that brings recovered spawner items and plugin messages in line with the PlexonCraft visual language while preserving the stable 2.0.2 break logic.
 
-## Fixed
+## PlexonCraft item theme
 
-- Fixed OP/admin players automatically qualifying for spawner recovery even when their held tool had no Silk Touch.
-- The configured `breaking.required-silk-touch-level` is now authoritative by default for everyone, including server operators.
-- Added `breaking.allow-silk-bypass-permission`, disabled by default.
-- `plexonspawners.bypass.silk` is now `default: false` instead of being automatically granted to operators.
-- A bypass now works only when BOTH conditions are true:
-  - `breaking.allow-silk-bypass-permission: true`
-  - the player has `plexonspawners.bypass.silk`
-- Existing 2.0/2.0.1 configs that do not contain the new option automatically behave as `false`, so they are protected without requiring a config reset.
+- Redesigned recovered spawner names with the PlexonCraft primary blue gradient.
+- Added `<!italic>` to item name/lore defaults so Minecraft's default italic lore style does not interfere with the design.
+- Replaced generic implementation-facing lore with a compact collectible-style description.
+- Added concise `›` metadata rows for creature type and placement state.
+- Added a subtle PlexonCraft footer instead of the old `Managed by PlexonSpawners` line.
+- Updated Java fallback templates so missing config values no longer fall back to the old purple style.
 
-## Expected behavior
+## Message theme
 
-With:
+- Reworked the default message prefix into a clean PlexonCraft-styled `SPAWNERS »` header.
+- Added consistent success, warning, danger, muted and secondary accent colors.
+- Shortened technical/admin wording where player-facing feedback should stay concise.
+- Improved recovery and Essence-drop feedback to feel like part of the server rather than raw plugin output.
 
-```yaml
-breaking:
-  required-silk-touch-level: 1
-  allow-silk-bypass-permission: false
-```
+## Safe migration
 
-- No Silk Touch -> failed recovery -> roll Spawner Essence chance.
-- Silk Touch I or higher -> typed spawner drop.
-- OP/admin status alone -> does not bypass the requirement.
+2.1.0 includes conservative migration for existing installations:
+
+- The old stock 2.0.x recovered-spawner name/lore is upgraded automatically.
+- Customized spawner item templates are preserved.
+- Old stock 2.0.x messages are upgraded key-by-key to the PlexonCraft theme.
+- Customized message values are preserved instead of being overwritten.
+
+This allows an existing server to receive the new theme without deleting its configuration files.
+
+## Gameplay stability
+
+The working 2.0.2 gameplay behavior is unchanged:
+
+- Authoritative spawner break ownership remains enabled by configuration.
+- WildStacker-safe one-at-a-time unstacking remains intact.
+- Silk Touch requirements remain authoritative for OP/admin players by default.
+- Spawner Essence chances, amounts, delivery, world restrictions, XP and Creative-mode rules remain unchanged.
 
 ## Requirements
 
@@ -34,4 +45,4 @@ breaking:
 
 ## Server file
 
-Replace the previous plugin JAR with `PlexonSpawners-2.0.2.jar` and fully restart the server.
+Replace the previous plugin JAR with `PlexonSpawners-2.1.0.jar` and fully restart the server.

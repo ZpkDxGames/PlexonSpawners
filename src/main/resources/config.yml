@@ -1,5 +1,5 @@
 # ============================================================================
-# PlexonSpawners 2.0.2 - Main Configuration
+# PlexonSpawners 2.1.0 - Main Configuration
 # ============================================================================
 # Most gameplay settings can also be changed in-game with:
 #   /pspawners admin
@@ -160,18 +160,26 @@ essence:
   item: null
 
 spawner-item:
-  # MiniMessage template used for recovered spawner item names.
-  # %mob% is replaced with the formatted entity name.
-  name: '<gradient:#8A2BE2:#D56BFF><b>%mob% Spawner</b></gradient>'
+  # PLAYER-FACING RECOVERED SPAWNER STYLE
+  # All text supports MiniMessage. `%mob%` is replaced with the formatted mob
+  # name (for example: `Wither Skeleton`).
+  #
+  # `<!italic>` is intentionally included so Minecraft's default item-lore
+  # italics do not interfere with the PlexonCraft visual style.
+  name: '<!italic><gradient:#56B9F2:#92E1FF><b>✦ %mob% Spawner</b></gradient>'
 
-  # MiniMessage lore for recovered typed spawners.
-  # %mob% is available on every line.
+  # Keep lore compact: one short description, a metadata section, and a subtle
+  # PlexonCraft footer. `%mob%` may be used on any line.
   lore:
     - ''
-    - '<gray>Places a <white>%mob%</white> spawner.'
+    - '<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>'
+    - '<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>'
     - ''
-    - '<dark_gray>Spawner Type:</dark_gray> <white>%mob%</white>'
-    - '<dark_gray>Managed by PlexonSpawners</dark_gray>'
+    - '<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>'
+    - '<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>'
+    - ''
+    - '<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>'
+    - '<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>'
 
 messages:
   # Send a chat message when a qualifying Silk Touch break successfully

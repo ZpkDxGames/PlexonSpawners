@@ -14,7 +14,32 @@ import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
+import java.util.List;
+
 public final class PlexonSpawners extends JavaPlugin {
+    private static final String LEGACY_SPAWNER_NAME =
+        "<gradient:#8A2BE2:#D56BFF><b>%mob% Spawner</b></gradient>";
+    private static final List<String> LEGACY_SPAWNER_LORE = List.of(
+        "",
+        "<gray>Places a <white>%mob%</white> spawner.",
+        "",
+        "<dark_gray>Spawner Type:</dark_gray> <white>%mob%</white>",
+        "<dark_gray>Managed by PlexonSpawners</dark_gray>"
+    );
+    private static final String PLEXONCRAFT_SPAWNER_NAME =
+        "<!italic><gradient:#56B9F2:#92E1FF><b>✦ %mob% Spawner</b></gradient>";
+    private static final List<String> PLEXONCRAFT_SPAWNER_LORE = List.of(
+        "",
+        "<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>",
+        "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>",
+        "",
+        "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
+        "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>",
+        "",
+        "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
+        "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
+    );
+
     private final PluginSettings settings = new PluginSettings();
 
     private MessageService messages;
@@ -98,17 +123,36 @@ public final class PlexonSpawners extends JavaPlugin {
             getConfig().set("breaking.take-ownership", true);
             changed = true;
         }
+        if (!getConfig().contains("breaking.allow-silk-bypass-permission")) {
+            getConfig().set("breaking.allow-silk-bypass-permission", false);
+            changed = true;
+        }
         if (!getConfig().contains("essence.default-chance")) {
             getConfig().set("essence.default-chance", 35.0);
             changed = true;
         }
-        if (getConfig().getInt("config-version", 1) < 2) {
+
+        final int configVersion = getConfig().getInt("config-version", 1);
+        if (configVersion < 2) {
             getConfig().set("config-version", 2);
             changed = true;
         }
+
+        if (configVersion < 3) {
+            final String currentName = getConfig().getString("spawner-item.name", "");
+            final List<String> currentLore = getConfig().getStringList("spawner-item.lore");
+            if (LEGACY_SPAWNER_NAME.equals(currentName) && LEGACY_SPAWNER_LORE.equals(currentLore)) {
+                getConfig().set("spawner-item.name", PLEXONCRAFT_SPAWNER_NAME);
+                getConfig().set("spawner-item.lore", PLEXONCRAFT_SPAWNER_LORE);
+                getLogger().info("Updated the stock recovered-spawner style to the PlexonCraft 2.1 theme.");
+            }
+            getConfig().set("config-version", 3);
+            changed = true;
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 2.x.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 2.1.");
         }
     }
 }
