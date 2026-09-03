@@ -1,5 +1,17 @@
 # Changelog
 
+## 2.0.1 - Spawner Ownership & WildStacker Compatibility
+
+- Fixed conflicts with other HIGHEST-priority spawner break listeners that could prevent PlexonSpawners from producing its own spawner/Essence outcome.
+- Added `breaking.take-ownership`, enabled by default, so PlexonSpawners can authoritatively complete managed spawner breaks.
+- Added `loadbefore: [WildStacker]` so PlexonSpawners registers its HIGHEST-priority break handler first.
+- Added a reflection-based WildStacker compatibility bridge with no hard runtime dependency.
+- WildStacker stacks are reduced by exactly one unit per PlexonSpawners-owned break instead of removing the whole physical stack.
+- Added safe fallback behavior: if WildStacker's stack API cannot be used or rejects an unstack, PlexonSpawners does not force-delete the stack.
+- Restored tool durability consumption for authoritative breaks using Paper's normal item-damage pipeline.
+- Authoritative breaks cancel the original Bukkit event after safe physical removal/unstacking, preventing later spawner managers that respect cancellation from creating a duplicate/conflicting outcome.
+- Preserved existing Silk Touch, Essence chance, per-mob valuation, XP, world and Creative-mode rules.
+
 ## 2.0.0 - GUI & Configuration Update
 
 - Redesigned the admin interface into focused 54-slot pages instead of one compact editor.

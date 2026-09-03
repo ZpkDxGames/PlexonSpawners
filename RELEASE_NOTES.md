@@ -1,32 +1,31 @@
-# PlexonSpawners 2.0.0
+# PlexonSpawners 2.0.1
 
-PlexonSpawners 2.0 focuses on administration quality, configuration clarity, and making Spawner Essence a tunable physical currency rather than a guaranteed fallback item.
+PlexonSpawners 2.0.1 is a compatibility and break-ownership hotfix for servers that run another spawner manager alongside PlexonSpawners, especially WildStacker.
 
-## Highlights
+## Fixed
 
-- Completely redesigned `/pspawners admin` interface with separate **Spawner Rules**, **Spawner Essence**, and **Mob Values** pages.
-- Removed unrelated plugin references and raw configuration-path wording from the GUI.
-- Added detailed explanations directly to each GUI control so admins can understand the outcome before changing a setting.
-- Added configurable Essence drop chance after a failed Silk Touch recovery.
-- Added global and per-mob Essence chances from `0%` to `100%`, including decimal percentages.
-- Added per-mob amount + chance editing directly in-game.
-- Added reset-to-global behavior for mob overrides.
-- Added in-game controls for Essence delivery, break handling, XP drops, Creative drops, qualified spawner drops, and Silk Touch requirement.
-- Reworked `config.yml` into a fully documented reference with ranges, examples, and behavior notes.
-- Added safe migration for 1.x configurations while preserving existing custom values.
-- Maintains the database-free, low-overhead design of the 1.0 release.
+- Fixed spawner breaks being intercepted by another HIGHEST-priority spawner listener before PlexonSpawners could produce its typed spawner or Spawner Essence result.
+- PlexonSpawners can now take authoritative ownership of managed spawner breaks with `breaking.take-ownership: true` (enabled by default).
+- Added explicit load ordering before WildStacker so PlexonSpawners can claim the break first.
+- Added a stack-safe WildStacker compatibility bridge that removes exactly one spawner from a stack instead of deleting the entire physical stack.
+- Restored normal tool durability consumption for Plexon-owned breaks through Paper's item-damage API, including normal Unbreaking/item-break processing.
+- PlexonSpawners now cancels a successfully claimed break before later spawner managers can run a second drop pipeline.
+- If the WildStacker stack API is unavailable or rejects an unstack, PlexonSpawners does not force-remove the stack, preventing destructive fallback behavior.
 
-## Essence chance example
-
-With:
+## Break ownership
 
 ```yaml
-essence:
-  default-chance: 35.0
-  default-amount: 1
+breaking:
+  take-ownership: true
 ```
 
-A player who breaks a spawner without meeting the configured Silk Touch requirement has a 35% chance to receive one Spawner Essence. Mob-specific settings can override either value.
+With ownership enabled, PlexonSpawners performs the physical break/unstack itself and exclusively decides the outcome:
+
+- Silk Touch requirement met -> typed spawner (when enabled).
+- Silk Touch requirement not met -> roll the configured Spawner Essence chance.
+- Failed Essence roll -> no managed drop.
+
+For a WildStacker stack, one player break removes one spawner unit from that stack while PlexonSpawners handles that unit's reward outcome.
 
 ## Requirements
 
@@ -35,4 +34,4 @@ A player who breaks a spawner without meeting the configured Silk Touch requirem
 
 ## Server file
 
-Install `PlexonSpawners-2.0.0.jar` in the server's `plugins` directory and restart the server.
+Replace the previous plugin JAR with `PlexonSpawners-2.0.1.jar` and fully restart the server so plugin load ordering is reapplied.
