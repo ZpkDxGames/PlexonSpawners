@@ -2,6 +2,7 @@ package com.plexon.spawners;
 
 import com.plexon.spawners.api.PlexonSpawnersApi;
 import com.plexon.spawners.command.PlexonSpawnersCommand;
+import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.gui.AdminGui;
 import com.plexon.spawners.item.EssenceService;
@@ -41,6 +42,7 @@ public final class PlexonSpawners extends JavaPlugin {
             spawnerItemService,
             messages
         );
+        final WildStackerCompat wildStackerCompat = new WildStackerCompat(this);
 
         final PluginCommand pluginCommand = getCommand("pspawners");
         if (pluginCommand == null) {
@@ -51,7 +53,7 @@ public final class PlexonSpawners extends JavaPlugin {
 
         getServer().getPluginManager().registerEvents(adminGui, this);
         getServer().getPluginManager().registerEvents(
-            new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages),
+            new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages, wildStackerCompat),
             this
         );
         getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
@@ -92,6 +94,10 @@ public final class PlexonSpawners extends JavaPlugin {
             getConfig().set("config-version", 2);
             changed = true;
         }
+        if (!getConfig().contains("breaking.take-ownership")) {
+            getConfig().set("breaking.take-ownership", true);
+            changed = true;
+        }
         if (!getConfig().contains("essence.default-chance")) {
             getConfig().set("essence.default-chance", 35.0);
             changed = true;
@@ -102,7 +108,7 @@ public final class PlexonSpawners extends JavaPlugin {
         }
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 2.0.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 2.x.");
         }
     }
 }
