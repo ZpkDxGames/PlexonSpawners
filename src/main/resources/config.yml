@@ -1,5 +1,5 @@
 # ============================================================================
-# PlexonSpawners 2.0.0 - Main Configuration
+# PlexonSpawners 2.0.1 - Main Configuration
 # ============================================================================
 # Most gameplay settings can also be changed in-game with:
 #   /pspawners admin
@@ -21,6 +21,23 @@ breaking:
   # true  -> PlexonSpawners handles player-broken spawners.
   # false -> The plugin leaves spawner break drops untouched.
   enabled: true
+
+  # AUTHORITATIVE BREAK OWNERSHIP
+  # true is strongly recommended when another plugin can also manage spawners.
+  #
+  # true:
+  #   PlexonSpawners claims a valid spawner break at HIGHEST priority, cancels
+  #   the original Bukkit break event, completes the break itself, applies tool
+  #   durability through Paper's normal damage logic, and produces only the
+  #   PlexonSpawners-managed spawner/Essence outcome.
+  #
+  #   When WildStacker is installed, a stack-safe bridge removes exactly ONE
+  #   spawner from the stack instead of deleting the whole physical stack.
+  #
+  # false:
+  #   Uses the legacy 2.0 behavior and leaves the physical break to Bukkit or
+  #   another plugin. This may allow another spawner manager to override drops.
+  take-ownership: true
 
   # Minimum Silk Touch enchantment level needed to recover the actual spawner.
   # Example with a value of 3:
