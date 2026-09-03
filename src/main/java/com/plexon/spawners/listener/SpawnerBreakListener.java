@@ -16,6 +16,7 @@ import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.ItemStack;
 
 import java.util.Map;
+import java.util.concurrent.ThreadLocalRandom;
 
 public final class SpawnerBreakListener implements Listener {
     private final PluginSettings settings;
@@ -67,6 +68,7 @@ public final class SpawnerBreakListener implements Listener {
             || silkLevel >= requiredLevel
             || player.hasPermission("plexonspawners.bypass.silk");
 
+        // PlexonSpawners owns the spawner outcome so vanilla cannot duplicate the drop.
         event.setDropItems(false);
         if (!settings.dropExperience()) {
             event.setExpToDrop(0);
@@ -89,11 +91,26 @@ public final class SpawnerBreakListener implements Listener {
             return;
         }
 
+        final double chance = settings.essenceChance(entityType);
+        if (!passesChance(chance)) {
+            return;
+        }
+
         final int amount = settings.essenceAmount(entityType);
         deliverEssence(player, event, amount);
         if (settings.breakFailedMessages()) {
             messages.send(player, "essence-dropped", Map.of("amount", Integer.toString(amount)));
         }
+    }
+
+    private static boolean passesChance(final double chance) {
+        if (chance <= 0.0) {
+            return false;
+        }
+        if (chance >= 100.0) {
+            return true;
+        }
+        return ThreadLocalRandom.current().nextDouble(100.0) < chance;
     }
 
     private void deliverEssence(final Player player, final BlockBreakEvent event, final int totalAmount) {
