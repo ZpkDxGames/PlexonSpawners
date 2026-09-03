@@ -64,9 +64,11 @@ public final class SpawnerBreakListener implements Listener {
         final ItemStack tool = player.getInventory().getItemInMainHand();
         final int silkLevel = tool.getEnchantmentLevel(Enchantment.SILK_TOUCH);
         final int requiredLevel = settings.requiredSilkTouchLevel();
+        final boolean hasExplicitBypass = settings.silkBypassPermissionEnabled()
+            && player.hasPermission("plexonspawners.bypass.silk");
         final boolean qualified = requiredLevel <= 0
             || silkLevel >= requiredLevel
-            || player.hasPermission("plexonspawners.bypass.silk");
+            || hasExplicitBypass;
 
         if (!settings.takeOwnership()) {
             handleLegacyOutcome(event, player, entityType, qualified);
@@ -76,16 +78,11 @@ public final class SpawnerBreakListener implements Listener {
         final int experience = settings.dropExperience() ? Math.max(0, event.getExpToDrop()) : 0;
         final WildStackerCompat.Result stackResult = wildStackerCompat.unstackOne(spawner, player);
 
-        // If WildStacker is present but its API cannot safely complete the unstack,
-        // do not force-remove the physical block. Let the external manager continue.
         if (stackResult == WildStackerCompat.Result.UNAVAILABLE
             || stackResult == WildStackerCompat.Result.CANCELLED) {
             return;
         }
 
-        // From this point PlexonSpawners owns the successful break. Cancelling the
-        // Bukkit event prevents later spawner managers that respect cancellation
-        // (including WildStacker) from executing a second break/drop pipeline.
         event.setCancelled(true);
         event.setDropItems(false);
         event.setExpToDrop(0);
