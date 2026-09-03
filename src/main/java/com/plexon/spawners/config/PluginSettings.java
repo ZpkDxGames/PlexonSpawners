@@ -27,15 +27,17 @@ public final class PluginSettings {
 
     private boolean essenceEnabled;
     private int defaultEssenceAmount;
+    private double defaultEssenceChance;
     private EssenceDelivery essenceDelivery;
-    private Map<EntityType, Integer> essenceOverrides = Map.of();
+    private Map<EntityType, Integer> essenceAmountOverrides = Map.of();
+    private Map<EntityType, Double> essenceChanceOverrides = Map.of();
 
     private boolean breakSuccessMessages;
     private boolean breakFailedMessages;
 
     public void reload(final FileConfiguration config) {
         breakingEnabled = config.getBoolean("breaking.enabled", true);
-        requiredSilkTouchLevel = Math.max(0, config.getInt("breaking.required-silk-touch-level", 3));
+        requiredSilkTouchLevel = clamp(config.getInt("breaking.required-silk-touch-level", 3), 0, 255);
         dropSpawnerWhenQualified = config.getBoolean("breaking.drop-spawner-when-qualified", true);
         dropExperience = config.getBoolean("breaking.drop-experience", false);
         creativeDrops = config.getBoolean("breaking.creative-drops", false);
@@ -50,19 +52,38 @@ public final class PluginSettings {
 
         essenceEnabled = config.getBoolean("essence.enabled", true);
         defaultEssenceAmount = clamp(config.getInt("essence.default-amount", 1), 1, 4096);
+        defaultEssenceChance = clampChance(config.getDouble("essence.default-chance", 35.0));
         essenceDelivery = parseDelivery(config.getString("essence.delivery", "GROUND"));
 
-        final EnumMap<EntityType, Integer> overrides = new EnumMap<>(EntityType.class);
+        final EnumMap<EntityType, Integer> amountOverrides = new EnumMap<>(EntityType.class);
+        final EnumMap<EntityType, Double> chanceOverrides = new EnumMap<>(EntityType.class);
         final ConfigurationSection section = config.getConfigurationSection("essence.mob-overrides");
         if (section != null) {
             for (final String key : section.getKeys(false)) {
                 final EntityType type = parseEntityType(key);
-                if (type != null) {
-                    overrides.put(type, clamp(section.getInt(key, defaultEssenceAmount), 1, 4096));
+                if (type == null) {
+                    continue;
+                }
+
+                final ConfigurationSection mobSection = section.getConfigurationSection(key);
+                if (mobSection != null) {
+                    if (mobSection.contains("amount")) {
+                        amountOverrides.put(type, clamp(mobSection.getInt("amount", defaultEssenceAmount), 1, 4096));
+                    }
+                    if (mobSection.contains("chance")) {
+                        chanceOverrides.put(type, clampChance(mobSection.getDouble("chance", defaultEssenceChance)));
+                    }
+                    continue;
+                }
+
+                // 1.x compatibility: `BLAZE: 3` is treated as an amount-only override.
+                if (section.isInt(key)) {
+                    amountOverrides.put(type, clamp(section.getInt(key, defaultEssenceAmount), 1, 4096));
                 }
             }
         }
-        essenceOverrides = Collections.unmodifiableMap(overrides);
+        essenceAmountOverrides = Collections.unmodifiableMap(amountOverrides);
+        essenceChanceOverrides = Collections.unmodifiableMap(chanceOverrides);
 
         breakSuccessMessages = config.getBoolean("messages.break-success-enabled", false);
         breakFailedMessages = config.getBoolean("messages.break-failed-enabled", false);
@@ -77,7 +98,15 @@ public final class PluginSettings {
     }
 
     public int essenceAmount(final EntityType type) {
-        return essenceOverrides.getOrDefault(type, defaultEssenceAmount);
+        return essenceAmountOverrides.getOrDefault(type, defaultEssenceAmount);
+    }
+
+    public double essenceChance(final EntityType type) {
+        return essenceChanceOverrides.getOrDefault(type, defaultEssenceChance);
+    }
+
+    public boolean hasEssenceOverride(final EntityType type) {
+        return essenceAmountOverrides.containsKey(type) || essenceChanceOverrides.containsKey(type);
     }
 
     public boolean breakingEnabled() {
@@ -96,12 +125,20 @@ public final class PluginSettings {
         return dropExperience;
     }
 
+    public boolean creativeDrops() {
+        return creativeDrops;
+    }
+
     public boolean essenceEnabled() {
         return essenceEnabled;
     }
 
     public int defaultEssenceAmount() {
         return defaultEssenceAmount;
+    }
+
+    public double defaultEssenceChance() {
+        return defaultEssenceChance;
     }
 
     public EssenceDelivery essenceDelivery() {
@@ -134,5 +171,12 @@ public final class PluginSettings {
 
     private static int clamp(final int value, final int min, final int max) {
         return Math.max(min, Math.min(max, value));
+    }
+
+    private static double clampChance(final double value) {
+        if (!Double.isFinite(value)) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(100.0, value));
     }
 }
