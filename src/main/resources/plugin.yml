@@ -41,5 +41,5 @@ permissions:
     description: Configure or give Spawner Essence.
     default: op
   plexonspawners.bypass.silk:
-    description: Treat the player as meeting the configured Silk Touch requirement.
-    default: op
+    description: Bypass the configured Silk Touch level only when breaking.allow-silk-bypass-permission is enabled.
+    default: false
