@@ -1,0 +1,39 @@
+name: PlexonSpawners
+version: '${version}'
+main: com.plexon.spawners.PlexonSpawners
+api-version: '26.2'
+author: ZpkDxGames
+description: Standalone spawner handling and physical Spawner Essence currency for Paper.
+prefix: PlexonSpawners
+
+commands:
+  pspawners:
+    description: PlexonSpawners administration command.
+    usage: /pspawners <admin|info|reload|give|essence>
+    aliases: [plexonspawners, pspawner]
+    permission: plexonspawners.admin
+
+permissions:
+  plexonspawners.admin:
+    description: Access to PlexonSpawners administration commands.
+    default: op
+    children:
+      plexonspawners.admin.gui: true
+      plexonspawners.admin.reload: true
+      plexonspawners.admin.give: true
+      plexonspawners.admin.essence: true
+  plexonspawners.admin.gui:
+    description: Open and use the in-game admin editor.
+    default: op
+  plexonspawners.admin.reload:
+    description: Reload PlexonSpawners configuration.
+    default: op
+  plexonspawners.admin.give:
+    description: Give PlexonSpawners spawner items.
+    default: op
+  plexonspawners.admin.essence:
+    description: Configure or give Spawner Essence.
+    default: op
+  plexonspawners.bypass.silk:
+    description: Treat the player as meeting the configured Silk Touch requirement.
+    default: op
