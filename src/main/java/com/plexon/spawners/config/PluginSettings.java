@@ -19,6 +19,7 @@ public final class PluginSettings {
     }
 
     private boolean breakingEnabled;
+    private boolean takeOwnership;
     private int requiredSilkTouchLevel;
     private boolean dropSpawnerWhenQualified;
     private boolean dropExperience;
@@ -37,6 +38,7 @@ public final class PluginSettings {
 
     public void reload(final FileConfiguration config) {
         breakingEnabled = config.getBoolean("breaking.enabled", true);
+        takeOwnership = config.getBoolean("breaking.take-ownership", true);
         requiredSilkTouchLevel = clamp(config.getInt("breaking.required-silk-touch-level", 3), 0, 255);
         dropSpawnerWhenQualified = config.getBoolean("breaking.drop-spawner-when-qualified", true);
         dropExperience = config.getBoolean("breaking.drop-experience", false);
@@ -111,6 +113,10 @@ public final class PluginSettings {
 
     public boolean breakingEnabled() {
         return breakingEnabled;
+    }
+
+    public boolean takeOwnership() {
+        return takeOwnership;
     }
 
     public int requiredSilkTouchLevel() {
