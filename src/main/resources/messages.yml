@@ -1,13 +1,25 @@
-prefix: '<gradient:#8A2BE2:#D56BFF><b>PlexonSpawners</b></gradient> <dark_gray>»</dark_gray> '
-no-permission: '<red>You do not have permission to do that.</red>'
-player-only: '<red>This command can only be used by a player.</red>'
-reloaded: '<green>Configuration and item templates reloaded.</green>'
-invalid-player: '<red>Player <white>%player%</white> is not online.</red>'
-invalid-entity: '<red>Unknown entity type: <white>%entity%</white>.</red>'
-invalid-number: '<red><white>%value%</white> is not a valid positive number.</red>'
-gave-spawner: '<green>Gave <white>%amount%x %mob% Spawner</white> to <white>%player%</white>.</green>'
-gave-essence: '<green>Gave <white>%amount%x Spawner Essence</white> to <white>%player%</white>.</green>'
-essence-set: '<green>Spawner Essence copied from your main hand and secured with the PlexonSpawners identity tag.</green>'
-essence-empty-hand: '<red>Hold the item you want to use as Spawner Essence in your main hand.</red>'
-spawner-recovered: '<green>Recovered a <white>%mob% Spawner</white>.</green>'
-essence-dropped: '<gray>The spawner shattered into <light_purple>%amount%x Spawner Essence</light_purple>.</gray>'
+# ============================================================================
+# PlexonSpawners - PlexonCraft Message Theme
+# ============================================================================
+# All values support MiniMessage formatting.
+# Keep player-facing feedback short and readable; detailed configuration
+# explanations belong in config.yml and the admin GUI.
+# ============================================================================
+
+prefix: '<gradient:#56B9F2:#92E1FF><b>SPAWNERS</b></gradient> <dark_gray>»</dark_gray> '
+
+no-permission: '<#FF6B6B>You do not have permission to use that.</#FF6B6B>'
+player-only: '<#FF6B6B>This action is only available in-game.</#FF6B6B>'
+reloaded: '<#72F1B8>Spawner settings and item templates reloaded.</#72F1B8>'
+invalid-player: '<#FF6B6B>Player <white>%player%</white> is not online.</#FF6B6B>'
+invalid-entity: '<#FF6B6B>Unknown creature type: <white>%entity%</white>.</#FF6B6B>'
+invalid-number: '<#FF6B6B><white>%value%</white> must be a positive number.</#FF6B6B>'
+
+gave-spawner: '<#72F1B8>Gave <white>%amount%x %mob% Spawner</white> to <white>%player%</white>.</#72F1B8>'
+gave-essence: '<#72F1B8>Gave <white>%amount%x Spawner Essence</white> to <white>%player%</white>.</#72F1B8>'
+
+essence-set: '<#72F1B8>Spawner Essence template updated from your main hand.</#72F1B8> <#8B95A7>Its secure identity was applied automatically.</#8B95A7>'
+essence-empty-hand: '<#FFD166>Hold the item you want to use as Spawner Essence in your main hand.</#FFD166>'
+
+spawner-recovered: '<#72F1B8>Spawner recovered!</#72F1B8> <#D8DEE9>You secured a <white>%mob% Spawner</white>.</#D8DEE9>'
+essence-dropped: '<#D8DEE9>The spawner fractured, leaving <gradient:#C850C0:#FF7EB3><b>%amount%x Spawner Essence</b></gradient><#D8DEE9>.</#D8DEE9>'
