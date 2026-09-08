@@ -98,13 +98,45 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Download verified build assets
+        uses: actions/download-artifact@v4
+        with:
+          name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
+          path: release-assets
+
+      - name: Verify downloaded release assets
+        shell: bash
+        run: |
+          JAR="release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          SUMS="release-assets/SHA256SUMS.txt"
+          test -f "$JAR"
+          test -f "$SUMS"
+          (cd release-assets && sha256sum --check SHA256SUMS.txt)
+
       - name: Create v2.2.0 tag after successful main verification
         shell: bash
         run: |
           TAG="v${PLUGIN_VERSION}"
           if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "${TAG} already exists; leaving it unchanged."
-            exit 0
+          else
+            git tag "${TAG}" "${GITHUB_SHA}"
+            git push origin "refs/tags/${TAG}"
           fi
-          git tag "${TAG}" "${GITHUB_SHA}"
-          git push origin "refs/tags/${TAG}"
+
+      - name: Publish GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          TAG="v${PLUGIN_VERSION}"
+          JAR="release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          SUMS="release-assets/SHA256SUMS.txt"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" "$JAR" "$SUMS" --clobber
+          else
+            gh release create "$TAG" "$JAR" "$SUMS" \
+              --target "$GITHUB_SHA" \
+              --title "PlexonSpawners ${PLUGIN_VERSION}" \
+              --notes-file RELEASE_NOTES.md
+          fi
