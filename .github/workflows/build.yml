@@ -68,8 +68,11 @@ jobs:
             echo 'PlexonCore classes were shaded into the plugin JAR.' >&2
             exit 1
           fi
+          rm -rf build/release
           mkdir -p build/release
-          (cd build/libs && sha256sum "PlexonSpawners-${PLUGIN_VERSION}.jar") > build/release/SHA256SUMS.txt
+          cp "$JAR" "build/release/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          (cd build/release && sha256sum "PlexonSpawners-${PLUGIN_VERSION}.jar") > build/release/SHA256SUMS.txt
+          (cd build/release && sha256sum --check SHA256SUMS.txt)
 
       - name: Check whitespace
         run: git diff --check
@@ -78,9 +81,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
-          path: |
-            build/libs/PlexonSpawners-${{ env.PLUGIN_VERSION }}.jar
-            build/release/SHA256SUMS.txt
+          path: build/release/
           if-no-files-found: error
 
   release-tag:
