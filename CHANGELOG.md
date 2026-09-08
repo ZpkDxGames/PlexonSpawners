@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.2.0 - PlexonCore Migration & Public Spawner Event API
+
+- Migrated PlexonSpawners to the established PlexonCore module bridge while preserving standalone operation.
+- Added Core API range validation for `>=1.0 <2.0` and module lifecycle states STARTING/READY/DEGRADED/FAILED.
+- Registered module id `spawners` and published implemented spawner/API/event/WildStacker/stateless capabilities.
+- Added `PlexonSpawnerRecoveredEvent`, `PlexonSpawnerEssenceAwardedEvent`, and `PlexonSpawnerPlacedEvent` as stable synchronous post-success Bukkit events.
+- Added non-empty transaction IDs and event IDs for public event correlation and deduplication.
+- Preserved the existing `PlexonSpawnersApi` ServicesManager contract.
+- Added `/pspawners diagnostics` and expanded `/pspawners info` with Core mode, module state, Silk, Essence, WildStacker, API and event status.
+- Preserved `loadbefore: WildStacker` and added `softdepend: PlexonCore`.
+- PlexonCore is compile-only/provided and CI verifies its runtime classes are not shaded.
+- Added pinned Core 1.0.0 CI provisioning, Gradle/JUnit verification, reproducible release checks, and `SHA256SUMS.txt` generation.
+- Changed production publishing to exact tag-driven `v2.2.0` releases; ordinary `main` pushes no longer publish production releases.
+- Preserved 2.1.0 gameplay behavior, PDC keys, exact Essence template, WildStacker one-unit handling, strict Silk rules, conservative config migration, and database-free/stateless runtime.
+
 ## 2.1.0 - PlexonCraft Presentation Update
 
 - Redesigned recovered spawner item names and lore around the PlexonCraft primary/secondary color palette.
@@ -37,36 +52,11 @@
 
 - Redesigned the admin interface into focused 54-slot pages instead of one compact editor.
 - Added dedicated **Spawner Rules**, **Spawner Essence**, and **Mob Values** administration screens.
-- Removed references to unrelated plugins and raw implementation/config-path wording from the admin GUI.
-- Added fully explained GUI lore so each control describes its gameplay outcome before an admin changes a setting.
-- Added configurable Essence drop chances for failed Silk Touch recovery attempts.
-- Added `essence.default-chance` with support for values from `0.0` to `100.0`, including decimal percentages.
-- Added per-mob Essence chance overrides alongside per-mob amount overrides.
-- Added an in-game mob browser covering living/spawnable entity types.
-- Added in-game editing of per-mob amount and chance values, plus reset-to-global-default controls.
-- Added GUI control for Essence delivery mode.
-- Added GUI controls for break handling, XP drops, Creative-mode drops, qualified spawner drops, and Silk Touch requirement.
-- Expanded `config.yml` with detailed descriptions, valid ranges, behavior notes, and examples for every core option.
-- Added configuration versioning and safe 1.x migration for the new Essence chance setting.
-- Preserved compatibility with 1.x scalar mob amount overrides.
+- Added configurable Essence drop chances and per-mob amount/chance overrides.
+- Added GUI control for Essence delivery mode and break/Silk/XP/Creative rules.
+- Added configuration versioning and safe 1.x migration.
 - Kept the core system stateless and database-free.
 
 ## 1.0.0 - Initial Release
 
-- Released the first production version of PlexonSpawners.
-- Added standalone Paper 26.2 / Java 25 spawner handling.
-- Added configurable Silk Touch level requirements for recovering spawners.
-- Added typed spawner items that preserve the spawned entity when placed.
-- Added physical, PDC-secured Spawner Essence when a recovery attempt does not meet the Silk Touch requirement.
-- Added configurable default and per-mob Essence values.
-- Added ground or inventory Essence delivery with safe overflow handling.
-- Added an in-game administration GUI for core break rules and the Essence item template.
-- Added `/pspawners` admin, info, reload, spawner give, and Essence management commands.
-- Added MiniMessage-powered names, lore, and chat messages.
-- Added a Bukkit ServicesManager API for integrations.
-- Added configurable world filtering, creative handling, XP behavior, and optional break feedback.
-- Added automated Java 25 CI and GitHub Release packaging.
-
-## 0.1.0-SNAPSHOT
-
-- Internal development milestone used to establish the initial source tree.
+- Released standalone Paper 26.2 / Java 25 spawner handling, typed spawners, physical PDC-secured Essence, GUI administration, and Bukkit ServicesManager API.

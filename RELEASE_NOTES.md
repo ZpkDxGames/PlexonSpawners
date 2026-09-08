@@ -1,48 +1,60 @@
-# PlexonSpawners 2.1.0
+# PlexonSpawners 2.2.0
 
-PlexonSpawners 2.1.0 is a presentation and migration update that brings recovered spawner items and plugin messages in line with the PlexonCraft visual language while preserving the stable 2.0.2 break logic.
+PlexonSpawners 2.2.0 makes the plugin a first-class PlexonCore module without changing the stable spawner gameplay contract established by 2.0.2/2.1.0.
 
-## PlexonCraft item theme
+## PlexonCore integration
 
-- Redesigned recovered spawner names with the PlexonCraft primary blue gradient.
-- Added `<!italic>` to item name/lore defaults so Minecraft's default italic lore style does not interfere with the design.
-- Replaced generic implementation-facing lore with a compact collectible-style description.
-- Added concise `›` metadata rows for creature type and placement state.
-- Added a subtle PlexonCraft footer instead of the old `Managed by PlexonSpawners` line.
-- Updated Java fallback templates so missing config values no longer fall back to the old purple style.
+- Compatible PlexonCore 1.x present: module `spawners` registers and reaches `READY` in `CORE` mode.
+- Core absent, disabled, incompatible or unavailable: PlexonSpawners continues in safe `STANDALONE` mode.
+- Core is a compile-only dependency and is never shaded into PlexonSpawners.
+- Runtime integration is resolved once during lifecycle initialization; block breaks do not perform Core lookup/polling.
 
-## Message theme
+## Public event API
 
-- Reworked the default message prefix into a clean PlexonCraft-styled `SPAWNERS »` header.
-- Added consistent success, warning, danger, muted and secondary accent colors.
-- Shortened technical/admin wording where player-facing feedback should stay concise.
-- Improved recovery and Essence-drop feedback to feel like part of the server rather than raw plugin output.
+2.2.0 adds three stable synchronous Bukkit events:
 
-## Safe migration
+- `PlexonSpawnerRecoveredEvent` after a typed managed spawner is actually produced.
+- `PlexonSpawnerEssenceAwardedEvent` after the configured logical Essence amount is delivered.
+- `PlexonSpawnerPlacedEvent` after a managed spawner's creature type is successfully restored on placement.
 
-2.1.0 includes conservative migration for existing installations:
+Each event includes non-empty transaction/event IDs. Break recovery and Essence outcomes from the same accepted break share one transaction ID while retaining distinct event IDs.
 
-- The old stock 2.0.x recovered-spawner name/lore is upgraded automatically.
-- Customized spawner item templates are preserved.
-- Old stock 2.0.x messages are upgraded key-by-key to the PlexonCraft theme.
-- Customized message values are preserved instead of being overwritten.
+## Preserved gameplay
 
-This allows an existing server to receive the new theme without deleting its configuration files.
+- Authoritative break ownership and HIGHEST-priority interception remain unchanged.
+- `loadbefore: WildStacker` remains and stacked spawners are reduced one unit at a time.
+- Silk Touch remains authoritative for OP/admin players unless both explicit bypass configuration and permission are present.
+- Physical Essence remains exact-item and PDC-backed.
+- Managed spawner `managed_spawner` / `spawner_type` identity remains compatible.
+- XP, Creative rules, world restrictions, per-mob Essence values, admin GUI and 2.1.0 presentation are preserved.
+- The plugin remains database-free and stateless.
 
-## Gameplay stability
+## Diagnostics
 
-The working 2.0.2 gameplay behavior is unchanged:
+Use `/pspawners diagnostics` (or `/pspawners info`) to inspect Core mode/version/range, module state, break/Silk/Essence settings, WildStacker status, public API registration and public event readiness.
 
-- Authoritative spawner break ownership remains enabled by configuration.
-- WildStacker-safe one-at-a-time unstacking remains intact.
-- Silk Touch requirements remain authoritative for OP/admin players by default.
-- Spawner Essence chances, amounts, delivery, world restrictions, XP and Creative-mode rules remain unchanged.
+With Core present also validate `/plexon modules`, `/plexon integrations`, and `/plexon diagnostics`.
+
+## Upgrade
+
+For the live 2.0.2 server:
+
+1. Stop the server.
+2. Back up `PlexonSpawners-2.0.2.jar` and `plugins/PlexonSpawners/`.
+3. Replace the old JAR with `PlexonSpawners-2.2.0.jar`.
+4. Keep the existing plugin data/configuration directory.
+5. Start the server and run diagnostics.
+6. Perform one controlled Silk recovery, no-Silk Essence, and managed placement test.
+
+No database migration or rollback is required.
 
 ## Requirements
 
 - Paper 26.2
 - Java 25
+- PlexonCore 1.0.0 / API 1.x optional at runtime
 
-## Server file
+## Release assets
 
-Replace the previous plugin JAR with `PlexonSpawners-2.1.0.jar` and fully restart the server.
+- `PlexonSpawners-2.2.0.jar`
+- `SHA256SUMS.txt`

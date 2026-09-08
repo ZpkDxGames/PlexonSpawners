@@ -3,19 +3,23 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: Standalone spawner handling and physical Spawner Essence currency for Paper.
+description: Core-native spawner handling and physical Spawner Essence with standalone compatibility.
 prefix: PlexonSpawners
+
+softdepend:
+  - PlexonCore
 
 # PlexonSpawners intentionally loads before known spawner managers so its
 # HIGHEST-priority break listener can claim managed spawner breaks first.
 # WildStacker respects cancelled BlockBreakEvents, while PlexonSpawners uses a
 # stack-safe compatibility bridge to reduce its stack count by one.
-loadbefore: [WildStacker]
+loadbefore:
+  - WildStacker
 
 commands:
   pspawners:
     description: PlexonSpawners administration command.
-    usage: /pspawners <admin|info|reload|give|essence>
+    usage: /pspawners <admin|info|diagnostics|reload|give|essence>
     aliases: [plexonspawners, pspawner]
     permission: plexonspawners.admin
 
