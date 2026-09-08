@@ -69,7 +69,7 @@ jobs:
             exit 1
           fi
           mkdir -p build/release
-          sha256sum "$JAR" > build/release/SHA256SUMS.txt
+          (cd build/libs && sha256sum "PlexonSpawners-${PLUGIN_VERSION}.jar") > build/release/SHA256SUMS.txt
 
       - name: Check whitespace
         run: git diff --check
