@@ -1,20 +1,23 @@
-name: Build and Release
+name: Build
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+      - 'agent/**'
   pull_request:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
-  group: plexonspawners-${{ github.ref }}
+  group: plexonspawners-build-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  PLUGIN_VERSION: '2.1.0'
+  PLUGIN_VERSION: '2.2.0'
+  CORE_SHA256: '4abce6de93293e21b31cb874734430d5bdc77de17a4c3b98fd6a9006e1f13018'
 
 jobs:
   build:
@@ -34,37 +37,74 @@ jobs:
         with:
           gradle-version: '9.7.1'
 
-      - name: Build PlexonSpawners
-        run: gradle clean build --stacktrace
-
-      - name: Verify runtime JAR
+      - name: Provision PlexonCore API 1.0.0
         shell: bash
         run: |
-          test -f "build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          jar tf "build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar" | grep -q '^plugin.yml$'
-          jar tf "build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar" | grep -q '^com/plexon/spawners/PlexonSpawners.class$'
-          sha256sum "build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          curl -fsSL -o /tmp/PlexonCore-1.0.0.jar \
+            https://github.com/ZpkDxGames/PlexonCore/releases/download/v1.0.0/PlexonCore-1.0.0.jar
+          echo "${CORE_SHA256}  /tmp/PlexonCore-1.0.0.jar" | sha256sum --check
+          mvn -B install:install-file \
+            -Dfile=/tmp/PlexonCore-1.0.0.jar \
+            -DgroupId=com.zpkdxgames \
+            -DartifactId=PlexonCore \
+            -Dversion=1.0.0 \
+            -Dpackaging=jar \
+            -DgeneratePom=true
+
+      - name: Test and verify PlexonSpawners
+        run: gradle clean check --stacktrace
+
+      - name: Verify runtime JAR contract
+        shell: bash
+        run: |
+          JAR="build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          test -f "$JAR"
+          jar tf "$JAR" | grep -q '^plugin.yml$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/PlexonSpawners.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class$'
+          if jar tf "$JAR" | grep -q '^com/zpkdxgames/plexoncore/'; then
+            echo 'PlexonCore classes were shaded into the plugin JAR.' >&2
+            exit 1
+          fi
+          mkdir -p build/release
+          sha256sum "$JAR" > build/release/SHA256SUMS.txt
+
+      - name: Check whitespace
+        run: git diff --check
 
       - name: Upload CI artifact
         uses: actions/upload-artifact@v4
         with:
           name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
-          path: build/libs/PlexonSpawners-${{ env.PLUGIN_VERSION }}.jar
+          path: |
+            build/libs/PlexonSpawners-${{ env.PLUGIN_VERSION }}.jar
+            build/release/SHA256SUMS.txt
           if-no-files-found: error
 
-      - name: Publish GitHub Release
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ github.token }}
+  release-tag:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'release: PlexonSpawners 2.2.0')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create v2.2.0 tag after successful main verification
         shell: bash
         run: |
           TAG="v${PLUGIN_VERSION}"
-          JAR="build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$JAR" --clobber
-          else
-            gh release create "$TAG" "$JAR" \
-              --target "$GITHUB_SHA" \
-              --title "PlexonSpawners ${PLUGIN_VERSION}" \
-              --notes-file RELEASE_NOTES.md
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already exists; leaving it unchanged."
+            exit 0
           fi
+          git tag "${TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${TAG}"

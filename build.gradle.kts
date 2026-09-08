@@ -1,13 +1,16 @@
+import java.util.zip.ZipFile
+
 plugins {
     java
 }
 
 group = "com.plexon"
-version = "2.1.0"
+version = "2.2.0"
 
 val pluginVersion = version.toString()
 
 repositories {
+    mavenLocal()
     mavenCentral()
     maven {
         name = "papermc"
@@ -23,6 +26,11 @@ java {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.121-stable")
+    compileOnly("com.zpkdxgames:PlexonCore:1.0.0")
+
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
+    testImplementation("org.junit.jupiter:junit-jupiter")
+    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<JavaCompile>().configureEach {
@@ -40,6 +48,10 @@ tasks.processResources {
     }
 }
 
+tasks.test {
+    useJUnitPlatform()
+}
+
 tasks.jar {
     archiveBaseName.set("PlexonSpawners")
     archiveVersion.set(pluginVersion)
@@ -52,4 +64,34 @@ tasks.jar {
             "Implementation-Vendor" to "ZpkDxGames"
         )
     }
+}
+
+val verifyDistribution = tasks.register("verifyDistribution") {
+    group = "verification"
+    description = "Checks the PlexonSpawners distribution contract and Core isolation."
+    dependsOn(tasks.jar)
+    doLast {
+        val archive = tasks.jar.get().archiveFile.get().asFile
+        require(archive.isFile && archive.length() > 10_000L) {
+            "Runtime JAR is missing or unexpectedly small: $archive"
+        }
+        ZipFile(archive).use { zip ->
+            listOf(
+                "plugin.yml",
+                "com/plexon/spawners/PlexonSpawners.class",
+                "com/plexon/spawners/api/PlexonSpawnersApi.class",
+                "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",
+                "com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class",
+                "com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class",
+                "com/plexon/spawners/integration/core/CoreBridge.class"
+            ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
+            require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {
+                "PlexonCore runtime classes must not be shaded into PlexonSpawners"
+            }
+        }
+    }
+}
+
+tasks.check {
+    dependsOn(verifyDistribution)
 }

@@ -1,14 +1,14 @@
 package com.plexon.spawners.compat;
 
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Method;
+import java.util.function.Consumer;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
 
 /**
  * Optional WildStacker bridge implemented through reflection so PlexonSpawners
@@ -24,10 +24,16 @@ public final class WildStackerCompat {
     }
 
     private final JavaPlugin plugin;
+    private final Consumer<String> degradationReporter;
     private boolean warned;
 
     public WildStackerCompat(final JavaPlugin plugin) {
+        this(plugin, detail -> {});
+    }
+
+    public WildStackerCompat(final JavaPlugin plugin, final Consumer<String> degradationReporter) {
         this.plugin = plugin;
+        this.degradationReporter = degradationReporter;
     }
 
     public Result unstackOne(final CreatureSpawner spawner, final Player player) {
@@ -70,15 +76,24 @@ public final class WildStackerCompat {
         }
     }
 
+    public String status() {
+        final Plugin wildStacker = plugin.getServer().getPluginManager().getPlugin("WildStacker");
+        if (wildStacker == null || !wildStacker.isEnabled()) {
+            return "not installed";
+        }
+        return warned ? "degraded" : "ready";
+    }
+
     private void warnOnce(final Throwable throwable) {
         if (warned) {
             return;
         }
         warned = true;
         plugin.getLogger().warning(
-            "WildStacker was detected, but its stack API could not be used. " +
-                "PlexonSpawners will not force-remove stacked spawners to avoid deleting a full stack."
+            "WildStacker was detected, but its stack API could not be used. "
+                + "PlexonSpawners will not force-remove stacked spawners to avoid deleting a full stack."
         );
         plugin.getLogger().warning("Compatibility error: " + throwable.getClass().getSimpleName() + ": " + throwable.getMessage());
+        degradationReporter.accept("WildStacker detected but its compatibility API is unavailable");
     }
 }

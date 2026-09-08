@@ -5,16 +5,18 @@ import com.plexon.spawners.command.PlexonSpawnersCommand;
 import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.gui.AdminGui;
+import com.plexon.spawners.integration.core.CoreBridge;
+import com.plexon.spawners.integration.core.CoreBridgeFactory;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.listener.SpawnerBreakListener;
 import com.plexon.spawners.listener.SpawnerPlaceListener;
 import com.plexon.spawners.message.MessageService;
+import java.util.List;
+import java.util.logging.Level;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.util.List;
 
 public final class PlexonSpawners extends JavaPlugin {
     private static final String LEGACY_SPAWNER_NAME =
@@ -46,49 +48,65 @@ public final class PlexonSpawners extends JavaPlugin {
     private EssenceService essenceService;
     private SpawnerItemService spawnerItemService;
     private PlexonSpawnersApi api;
+    private CoreBridge coreBridge;
+    private WildStackerCompat wildStackerCompat;
 
     @Override
     public void onEnable() {
-        saveDefaultConfig();
-        migrateConfig();
+        coreBridge = CoreBridgeFactory.resolve(this);
+        coreBridge.registerStarting();
 
-        messages = new MessageService(this);
-        settings.reload(getConfig());
-        essenceService = new EssenceService(this);
-        spawnerItemService = new SpawnerItemService(this);
-        api = new PlexonSpawnersApi(essenceService, spawnerItemService);
-        getServer().getServicesManager().register(PlexonSpawnersApi.class, api, this, ServicePriority.Normal);
+        try {
+            saveDefaultConfig();
+            migrateConfig();
 
-        final AdminGui adminGui = new AdminGui(this, essenceService, messages);
-        final PlexonSpawnersCommand command = new PlexonSpawnersCommand(
-            this,
-            adminGui,
-            essenceService,
-            spawnerItemService,
-            messages
-        );
-        final WildStackerCompat wildStackerCompat = new WildStackerCompat(this);
+            messages = new MessageService(this);
+            settings.reload(getConfig());
+            essenceService = new EssenceService(this);
+            spawnerItemService = new SpawnerItemService(this);
+            api = new PlexonSpawnersApi(essenceService, spawnerItemService);
+            getServer().getServicesManager().register(PlexonSpawnersApi.class, api, this, ServicePriority.Normal);
 
-        final PluginCommand pluginCommand = getCommand("pspawners");
-        if (pluginCommand == null) {
-            throw new IllegalStateException("Command 'pspawners' is missing from plugin.yml");
+            final AdminGui adminGui = new AdminGui(this, essenceService, messages);
+            final PlexonSpawnersCommand command = new PlexonSpawnersCommand(
+                this,
+                adminGui,
+                essenceService,
+                spawnerItemService,
+                messages
+            );
+            wildStackerCompat = new WildStackerCompat(this, detail -> coreBridge.markDegraded(detail));
+
+            final PluginCommand pluginCommand = getCommand("pspawners");
+            if (pluginCommand == null) {
+                throw new IllegalStateException("Command 'pspawners' is missing from plugin.yml");
+            }
+            pluginCommand.setExecutor(command);
+            pluginCommand.setTabCompleter(command);
+
+            getServer().getPluginManager().registerEvents(adminGui, this);
+            getServer().getPluginManager().registerEvents(
+                new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages, wildStackerCompat),
+                this
+            );
+            getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
+
+            coreBridge.markReady("Spawner engine, managed items, public API/events and diagnostics ready");
+            getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
+                + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode.");
+        } catch (RuntimeException | LinkageError exception) {
+            coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
+            getLogger().log(Level.SEVERE, "PlexonSpawners failed to initialize safely.", exception);
+            throw exception;
         }
-        pluginCommand.setExecutor(command);
-        pluginCommand.setTabCompleter(command);
-
-        getServer().getPluginManager().registerEvents(adminGui, this);
-        getServer().getPluginManager().registerEvents(
-            new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages, wildStackerCompat),
-            this
-        );
-        getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
-
-        getLogger().info("PlexonSpawners " + getPluginMeta().getVersion() + " enabled for Paper 26.2.");
     }
 
     @Override
     public void onDisable() {
         getServer().getServicesManager().unregisterAll(this);
+        if (coreBridge != null) {
+            coreBridge.unregister();
+        }
     }
 
     public void reloadPlugin() {
@@ -111,6 +129,14 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public PlexonSpawnersApi api() {
         return api;
+    }
+
+    public CoreBridge coreBridge() {
+        return coreBridge;
+    }
+
+    public WildStackerCompat wildStackerCompat() {
+        return wildStackerCompat;
     }
 
     private void migrateConfig() {
@@ -152,7 +178,7 @@ public final class PlexonSpawners extends JavaPlugin {
 
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 2.1.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 2.2 compatibility.");
         }
     }
 }

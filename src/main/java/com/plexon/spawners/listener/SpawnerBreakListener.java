@@ -2,9 +2,15 @@ package com.plexon.spawners.listener;
 
 import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent;
+import com.plexon.spawners.event.PlexonSpawnerRecoveredEvent;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.message.MessageService;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
@@ -18,9 +24,6 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
-
-import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 public final class SpawnerBreakListener implements Listener {
     private final PluginSettings settings;
@@ -66,12 +69,12 @@ public final class SpawnerBreakListener implements Listener {
         final int requiredLevel = settings.requiredSilkTouchLevel();
         final boolean hasExplicitBypass = settings.silkBypassPermissionEnabled()
             && player.hasPermission("plexonspawners.bypass.silk");
-        final boolean qualified = requiredLevel <= 0
-            || silkLevel >= requiredLevel
-            || hasExplicitBypass;
+        final boolean usedBypass = requiredLevel > 0 && silkLevel < requiredLevel && hasExplicitBypass;
+        final boolean qualified = requiredLevel <= 0 || silkLevel >= requiredLevel || hasExplicitBypass;
+        final String transactionId = UUID.randomUUID().toString();
 
         if (!settings.takeOwnership()) {
-            handleLegacyOutcome(event, player, entityType, qualified);
+            handleLegacyOutcome(event, player, entityType, silkLevel, usedBypass, transactionId, qualified);
             return;
         }
 
@@ -105,13 +108,25 @@ public final class SpawnerBreakListener implements Listener {
             return;
         }
 
-        handleManagedOutcome(event, player, entityType, qualified);
+        handleManagedOutcome(
+            event,
+            player,
+            entityType,
+            silkLevel,
+            usedBypass,
+            stackResult == WildStackerCompat.Result.SUCCESS,
+            transactionId,
+            qualified
+        );
     }
 
     private void handleLegacyOutcome(
         final BlockBreakEvent event,
         final Player player,
         final EntityType entityType,
+        final int silkLevel,
+        final boolean usedBypass,
+        final String transactionId,
         final boolean qualified
     ) {
         if (!settings.shouldHandleCreative(player.getGameMode())) {
@@ -123,13 +138,17 @@ public final class SpawnerBreakListener implements Listener {
         if (!settings.dropExperience()) {
             event.setExpToDrop(0);
         }
-        handleManagedOutcome(event, player, entityType, qualified);
+        handleManagedOutcome(event, player, entityType, silkLevel, usedBypass, false, transactionId, qualified);
     }
 
     private void handleManagedOutcome(
         final BlockBreakEvent event,
         final Player player,
         final EntityType entityType,
+        final int silkLevel,
+        final boolean usedBypass,
+        final boolean wildStackerManaged,
+        final String transactionId,
         final boolean qualified
     ) {
         if (qualified) {
@@ -137,6 +156,15 @@ public final class SpawnerBreakListener implements Listener {
                 event.getBlock().getWorld().dropItemNaturally(
                     event.getBlock().getLocation(),
                     spawnerItemService.createSpawner(entityType, 1)
+                );
+                fireRecoveredEvent(
+                    player,
+                    entityType,
+                    event,
+                    silkLevel,
+                    usedBypass,
+                    wildStackerManaged,
+                    transactionId
                 );
                 if (settings.breakSuccessMessages()) {
                     messages.send(player, "spawner-recovered", Map.of("mob", SpawnerItemService.pretty(entityType)));
@@ -156,8 +184,61 @@ public final class SpawnerBreakListener implements Listener {
 
         final int amount = settings.essenceAmount(entityType);
         deliverEssence(player, event, amount);
+        fireEssenceEvent(player, entityType, event, amount, transactionId);
         if (settings.breakFailedMessages()) {
             messages.send(player, "essence-dropped", Map.of("amount", Integer.toString(amount)));
+        }
+    }
+
+    private void fireRecoveredEvent(
+        Player player,
+        EntityType entityType,
+        BlockBreakEvent source,
+        int silkLevel,
+        boolean usedBypass,
+        boolean wildStackerManaged,
+        String transactionId
+    ) {
+        requirePrimaryThread();
+        Bukkit.getPluginManager().callEvent(new PlexonSpawnerRecoveredEvent(
+            player,
+            entityType,
+            1,
+            source.getBlock().getLocation(),
+            silkLevel,
+            usedBypass,
+            wildStackerManaged,
+            transactionId + ":recovered",
+            transactionId
+        ));
+    }
+
+    private void fireEssenceEvent(
+        Player player,
+        EntityType entityType,
+        BlockBreakEvent source,
+        int amount,
+        String transactionId
+    ) {
+        requirePrimaryThread();
+        final PlexonSpawnerEssenceAwardedEvent.DeliveryMode deliveryMode =
+            settings.essenceDelivery() == PluginSettings.EssenceDelivery.INVENTORY
+                ? PlexonSpawnerEssenceAwardedEvent.DeliveryMode.INVENTORY
+                : PlexonSpawnerEssenceAwardedEvent.DeliveryMode.GROUND;
+        Bukkit.getPluginManager().callEvent(new PlexonSpawnerEssenceAwardedEvent(
+            player,
+            entityType,
+            amount,
+            deliveryMode,
+            source.getBlock().getLocation(),
+            transactionId + ":essence",
+            transactionId
+        ));
+    }
+
+    private static void requirePrimaryThread() {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException("PlexonSpawners public spawner events must fire on the primary server thread");
         }
     }
 

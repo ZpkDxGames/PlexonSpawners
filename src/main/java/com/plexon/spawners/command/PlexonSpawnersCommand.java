@@ -3,9 +3,17 @@ package com.plexon.spawners.command;
 import com.plexon.spawners.PlexonSpawners;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.gui.AdminGui;
+import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.message.MessageService;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -15,12 +23,6 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
-
-import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.List;
-import java.util.Locale;
-import java.util.Map;
 
 public final class PlexonSpawnersCommand implements CommandExecutor, TabCompleter {
     private final PlexonSpawners plugin;
@@ -61,7 +63,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
 
         return switch (args[0].toLowerCase(Locale.ROOT)) {
             case "reload" -> reload(sender);
-            case "info" -> info(sender);
+            case "info", "diagnostics" -> diagnostics(sender);
             case "give" -> giveSpawner(sender, args);
             case "essence" -> essence(sender, args);
             default -> {
@@ -94,12 +96,40 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         return true;
     }
 
-    private boolean info(final CommandSender sender) {
-        sender.sendMessage(messages.parse("<gradient:#8A2BE2:#D56BFF><b>PlexonSpawners</b></gradient> <gray>" + plugin.getPluginMeta().getVersion() + "</gray>"));
-        sender.sendMessage(messages.parse("<gray>Paper API:</gray> <white>26.2</white>"));
-        sender.sendMessage(messages.parse("<gray>Required Silk Touch:</gray> <white>" + plugin.settings().requiredSilkTouchLevel() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Spawner Essence:</gray> " + (plugin.settings().essenceEnabled() ? "<green>enabled</green>" : "<red>disabled</red>")));
+    private boolean diagnostics(final CommandSender sender) {
+        final CoreBridge core = plugin.coreBridge();
+        sender.sendMessage(messages.parse("<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Diagnostics</b></gradient>"));
+        sendDiagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
+        sendDiagnostic(sender, "Paper", Bukkit.getServer().getVersion());
+        sendDiagnostic(sender, "Java", Integer.toString(Runtime.version().feature()));
+        sendDiagnostic(sender, "Mode", core.mode());
+        sendDiagnostic(sender, "Core plugin/API", core.pluginVersion() + " / " + core.apiVersion());
+        sendDiagnostic(sender, "Supported Core", CoreBridge.SUPPORTED_API_RANGE);
+        sendDiagnostic(sender, "Module", core.registrationState());
+        sendDiagnostic(sender, "Breaking", enabled(plugin.settings().breakingEnabled()));
+        sendDiagnostic(sender, "Take ownership", Boolean.toString(plugin.settings().takeOwnership()));
+        sendDiagnostic(sender, "Silk required", Integer.toString(plugin.settings().requiredSilkTouchLevel()));
+        sendDiagnostic(sender, "Bypass enabled", Boolean.toString(plugin.settings().silkBypassPermissionEnabled()));
+        sendDiagnostic(sender, "Essence", enabled(plugin.settings().essenceEnabled()));
+        sendDiagnostic(sender, "Delivery", plugin.settings().essenceDelivery().name().toLowerCase(Locale.ROOT));
+        sendDiagnostic(sender, "WildStacker", plugin.wildStackerCompat().status());
+        sendDiagnostic(sender, "Public API", plugin.api() == null ? "not registered" : "registered");
+        sendDiagnostic(sender, "Public events", "recovered / essence / placed ready");
+        if (core.detail() != null && !core.detail().isBlank()) {
+            sendDiagnostic(sender, "Core detail", core.detail());
+        }
         return true;
+    }
+
+    private static void sendDiagnostic(final CommandSender sender, final String label, final String value) {
+        sender.sendMessage(
+            Component.text(label + ": ", NamedTextColor.GRAY)
+                .append(Component.text(value, NamedTextColor.WHITE))
+        );
+    }
+
+    private static String enabled(boolean value) {
+        return value ? "enabled" : "disabled";
     }
 
     private boolean giveSpawner(final CommandSender sender, final String[] args) {
@@ -219,6 +249,8 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
 
     private void sendUsage(final CommandSender sender) {
         sender.sendMessage(messages.parse("<gray>/pspawners admin</gray> <dark_gray>-</dark_gray> <white>open admin editor</white>"));
+        sender.sendMessage(messages.parse("<gray>/pspawners info</gray> <dark_gray>-</dark_gray> <white>runtime diagnostics</white>"));
+        sender.sendMessage(messages.parse("<gray>/pspawners diagnostics</gray> <dark_gray>-</dark_gray> <white>Core/integration diagnostics</white>"));
         sender.sendMessage(messages.parse("<gray>/pspawners give [player] [mob] [amount]</gray>"));
         sender.sendMessage(messages.parse("<gray>/pspawners essence set</gray> <dark_gray>-</dark_gray> <white>copy held item</white>"));
         sender.sendMessage(messages.parse("<gray>/pspawners essence give [player] [amount]</gray>"));
@@ -236,7 +268,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             return List.of();
         }
         if (args.length == 1) {
-            return filter(List.of("admin", "info", "reload", "give", "essence"), args[0]);
+            return filter(List.of("admin", "info", "diagnostics", "reload", "give", "essence"), args[0]);
         }
         if (args[0].equalsIgnoreCase("give")) {
             if (args.length == 2) {
