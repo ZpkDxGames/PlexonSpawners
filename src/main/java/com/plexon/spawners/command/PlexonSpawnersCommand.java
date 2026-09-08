@@ -12,6 +12,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
 import org.bukkit.Bukkit;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -97,26 +99,33 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
     private boolean diagnostics(final CommandSender sender) {
         final CoreBridge core = plugin.coreBridge();
         sender.sendMessage(messages.parse("<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Diagnostics</b></gradient>"));
-        sender.sendMessage(messages.parse("<gray>Plugin:</gray> <white>" + plugin.getPluginMeta().getVersion() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Paper:</gray> <white>" + Bukkit.getServer().getVersion() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Java:</gray> <white>" + Runtime.version().feature() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Mode:</gray> <white>" + core.mode() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Core plugin/API:</gray> <white>" + core.pluginVersion() + " / " + core.apiVersion() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Supported Core:</gray> <white>" + CoreBridge.SUPPORTED_API_RANGE + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Module:</gray> <white>" + core.registrationState() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Breaking:</gray> <white>" + enabled(plugin.settings().breakingEnabled()) + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Take ownership:</gray> <white>" + plugin.settings().takeOwnership() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Silk required:</gray> <white>" + plugin.settings().requiredSilkTouchLevel() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Bypass enabled:</gray> <white>" + plugin.settings().silkBypassPermissionEnabled() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Essence:</gray> <white>" + enabled(plugin.settings().essenceEnabled()) + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Delivery:</gray> <white>" + plugin.settings().essenceDelivery().name().toLowerCase(Locale.ROOT) + "</white>"));
-        sender.sendMessage(messages.parse("<gray>WildStacker:</gray> <white>" + plugin.wildStackerCompat().status() + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Public API:</gray> <white>" + (plugin.api() == null ? "not registered" : "registered") + "</white>"));
-        sender.sendMessage(messages.parse("<gray>Public events:</gray> <white>recovered / essence / placed ready</white>"));
+        sendDiagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
+        sendDiagnostic(sender, "Paper", Bukkit.getServer().getVersion());
+        sendDiagnostic(sender, "Java", Integer.toString(Runtime.version().feature()));
+        sendDiagnostic(sender, "Mode", core.mode());
+        sendDiagnostic(sender, "Core plugin/API", core.pluginVersion() + " / " + core.apiVersion());
+        sendDiagnostic(sender, "Supported Core", CoreBridge.SUPPORTED_API_RANGE);
+        sendDiagnostic(sender, "Module", core.registrationState());
+        sendDiagnostic(sender, "Breaking", enabled(plugin.settings().breakingEnabled()));
+        sendDiagnostic(sender, "Take ownership", Boolean.toString(plugin.settings().takeOwnership()));
+        sendDiagnostic(sender, "Silk required", Integer.toString(plugin.settings().requiredSilkTouchLevel()));
+        sendDiagnostic(sender, "Bypass enabled", Boolean.toString(plugin.settings().silkBypassPermissionEnabled()));
+        sendDiagnostic(sender, "Essence", enabled(plugin.settings().essenceEnabled()));
+        sendDiagnostic(sender, "Delivery", plugin.settings().essenceDelivery().name().toLowerCase(Locale.ROOT));
+        sendDiagnostic(sender, "WildStacker", plugin.wildStackerCompat().status());
+        sendDiagnostic(sender, "Public API", plugin.api() == null ? "not registered" : "registered");
+        sendDiagnostic(sender, "Public events", "recovered / essence / placed ready");
         if (core.detail() != null && !core.detail().isBlank()) {
-            sender.sendMessage(messages.parse("<gray>Core detail:</gray> <white>" + core.detail() + "</white>"));
+            sendDiagnostic(sender, "Core detail", core.detail());
         }
         return true;
+    }
+
+    private static void sendDiagnostic(final CommandSender sender, final String label, final String value) {
+        sender.sendMessage(
+            Component.text(label + ": ", NamedTextColor.GRAY)
+                .append(Component.text(value, NamedTextColor.WHITE))
+        );
     }
 
     private static String enabled(boolean value) {
