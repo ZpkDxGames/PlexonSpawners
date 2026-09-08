@@ -82,3 +82,29 @@ jobs:
             build/libs/PlexonSpawners-${{ env.PLUGIN_VERSION }}.jar
             build/release/SHA256SUMS.txt
           if-no-files-found: error
+
+  release-tag:
+    if: >-
+      github.event_name == 'push' &&
+      github.ref == 'refs/heads/main' &&
+      startsWith(github.event.head_commit.message, 'release: PlexonSpawners 2.2.0')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release commit
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create v2.2.0 tag after successful main verification
+        shell: bash
+        run: |
+          TAG="v${PLUGIN_VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already exists; leaving it unchanged."
+            exit 0
+          fi
+          git tag "${TAG}" "${GITHUB_SHA}"
+          git push origin "refs/tags/${TAG}"
