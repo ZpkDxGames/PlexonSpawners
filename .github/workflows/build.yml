@@ -17,7 +17,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PLUGIN_VERSION: '2.3.0'
+  PLUGIN_VERSION: '2.3.1'
   CORE_SHA256: '4abce6de93293e21b31cb874734430d5bdc77de17a4c3b98fd6a9006e1f13018'
 
 jobs:
@@ -62,9 +62,15 @@ jobs:
           test -f "$JAR"
           jar tf "$JAR" | grep -q '^plugin.yml$'
           jar tf "$JAR" | grep -q '^com/plexon/spawners/PlexonSpawners.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/integration/core/PlexonCoreBridge.class$'
           jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class$'
           jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class$'
           jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class$'
+          unzip -p "$JAR" plugin.yml | grep -A1 '^depend:$' | grep -q 'PlexonCore'
+          if unzip -p "$JAR" plugin.yml | grep -A1 '^softdepend:$' | grep -q 'PlexonCore'; then
+            echo 'PlexonCore must not be a soft dependency in 2.3.1.' >&2
+            exit 1
+          fi
           if jar tf "$JAR" | grep -q '^com/zpkdxgames/plexoncore/'; then
             echo 'PlexonCore classes were shaded into the plugin JAR.' >&2
             exit 1
@@ -89,7 +95,7 @@ jobs:
     if: >-
       github.event_name == 'push' &&
       github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'release: PlexonSpawners 2.3.0')
+      startsWith(github.event.head_commit.message, 'release: PlexonSpawners 2.3.1')
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -115,7 +121,7 @@ jobs:
           test -f "$SUMS"
           (cd release-assets && sha256sum --check SHA256SUMS.txt)
 
-      - name: Create v2.3.0 tag after successful main verification
+      - name: Create v2.3.1 tag after successful main verification
         shell: bash
         run: |
           TAG="v${PLUGIN_VERSION}"
