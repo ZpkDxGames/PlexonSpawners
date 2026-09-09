@@ -28,6 +28,7 @@ public final class WildStackerCompat implements Listener {
 
     private enum State {
         NOT_INSTALLED,
+        DISABLED,
         READY,
         DEGRADED
     }
@@ -61,8 +62,12 @@ public final class WildStackerCompat implements Listener {
     /** Resolve the optional provider once for the current lifecycle state. */
     public void refresh() {
         final Plugin detected = plugin.getServer().getPluginManager().getPlugin(WILDSTACKER);
-        if (detected == null || !detected.isEnabled()) {
-            clear(State.NOT_INSTALLED, "none");
+        if (detected == null) {
+            clear(State.NOT_INSTALLED, "none", null);
+            return;
+        }
+        if (!detected.isEnabled()) {
+            clear(State.DISABLED, "provider disabled", detected);
             return;
         }
         resolve(detected);
@@ -78,13 +83,16 @@ public final class WildStackerCompat implements Listener {
     @EventHandler
     public void onPluginDisable(final PluginDisableEvent event) {
         if (event.getPlugin() == provider || WILDSTACKER.equals(event.getPlugin().getName())) {
-            clear(State.NOT_INSTALLED, "provider disabled");
+            clear(State.DISABLED, "provider disabled", event.getPlugin());
         }
     }
 
     public Result unstackOne(final CreatureSpawner spawner, final Player player) {
-        if (state == State.NOT_INSTALLED || provider == null || !provider.isEnabled()) {
+        if (state == State.NOT_INSTALLED) {
             return Result.NOT_INSTALLED;
+        }
+        if (state == State.DISABLED || provider == null || !provider.isEnabled()) {
+            return Result.UNAVAILABLE;
         }
         if (state != State.READY || getStackedSpawner == null) {
             return Result.UNAVAILABLE;
@@ -119,6 +127,7 @@ public final class WildStackerCompat implements Listener {
     public String status() {
         return switch (state) {
             case NOT_INSTALLED -> "not installed";
+            case DISABLED -> "disabled";
             case READY -> "ready";
             case DEGRADED -> "degraded";
         };
@@ -181,8 +190,8 @@ public final class WildStackerCompat implements Listener {
         return false;
     }
 
-    private void clear(final State nextState, final String mode) {
-        provider = null;
+    private void clear(final State nextState, final String mode, final Plugin nextProvider) {
+        provider = nextProvider;
         getStackedSpawner = null;
         stackedSpawnerClass = null;
         getStackAmount = null;
