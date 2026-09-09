@@ -70,7 +70,7 @@ public final class PlexonSpawners extends JavaPlugin implements Listener {
             saveDefaultConfig();
             migrateConfig();
 
-            messages = new MessageService(this);
+            messages = new MessageService(this, coreBridge);
             settings.reload(getConfig());
             reportConfigurationWarnings();
             essenceService = new EssenceService(this);
@@ -115,7 +115,7 @@ public final class PlexonSpawners extends JavaPlugin implements Listener {
             );
 
             coreBridge.markReady(
-                "Core-native spawner engine, item runtime, public API/events, integrations and diagnostics ready"
+                "Core-native spawner engine, shared text, item runtime, public API/events, integrations and diagnostics ready"
             );
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
                 + " enabled for Paper 26.2 in " + coreBridge.mode()
@@ -123,7 +123,11 @@ public final class PlexonSpawners extends JavaPlugin implements Listener {
         } catch (RuntimeException | LinkageError exception) {
             getServer().getServicesManager().unregisterAll(this);
             if (coreBridge != null) {
-                coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
+                try {
+                    coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
+                } catch (RuntimeException | LinkageError coreFailure) {
+                    exception.addSuppressed(coreFailure);
+                }
             }
             getLogger().log(Level.SEVERE,
                 "PlexonSpawners failed to initialize as a PlexonCore module; standalone fallback is disabled.",
