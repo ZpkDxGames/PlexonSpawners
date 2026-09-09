@@ -2,6 +2,7 @@ package com.plexon.spawners.command;
 
 import com.plexon.spawners.PlexonSpawners;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
 import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.item.EssenceService;
@@ -105,6 +106,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
 
     private boolean diagnostics(final CommandSender sender) {
         final CoreBridge core = plugin.coreBridge();
+        final PerformanceCounters.Snapshot performance = plugin.performanceCounters().snapshot();
         sender.sendMessage(messages.parse("<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Diagnostics</b></gradient>"));
         sendDiagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
         sendDiagnostic(sender, "Paper", Bukkit.getServer().getVersion());
@@ -132,6 +134,24 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         sendDiagnostic(sender, "Managed template cache", Integer.toString(spawnerItemService.templateCacheSize()));
         sendDiagnostic(sender, "Entity key lookup", Integer.toString(spawnerItemService.entityKeyLookupSize()));
         sendDiagnostic(sender, "Config warnings", Integer.toString(plugin.settings().validationWarnings().size()));
+        sendDiagnostic(sender, "Break events", Long.toString(performance.blockBreakEventsSeen()));
+        sendDiagnostic(sender, "Fast rejects", performance.nonSpawnerFastRejects()
+            + " non-spawner / " + performance.disabledRejects() + " disabled / "
+            + performance.worldRejects() + " world");
+        sendDiagnostic(sender, "Accepted spawner breaks", Long.toString(performance.acceptedSpawnerBreaks()));
+        sendDiagnostic(sender, "WildStacker outcomes", performance.wildStackerSuccess() + " success / "
+            + performance.wildStackerNotStacked() + " not-stacked / "
+            + performance.wildStackerNotInstalled() + " absent / "
+            + performance.wildStackerCancelled() + " cancelled / "
+            + performance.wildStackerDegraded() + " degraded");
+        sendDiagnostic(sender, "Recoveries", Long.toString(performance.qualifiedRecoveries()));
+        sendDiagnostic(sender, "Essence outcomes", performance.essenceWins() + "/" + performance.essenceRolls()
+            + " wins/rolls, " + performance.essenceLogicalAmountAwarded() + " logical");
+        sendDiagnostic(sender, "Essence physical", performance.essenceItemStacksCreated()
+            + " stacks / " + performance.essenceGroundEntitiesCreated() + " ground entities");
+        sendDiagnostic(sender, "Placement events", Long.toString(performance.blockPlaceEventsSeen()));
+        sendDiagnostic(sender, "Managed placements", performance.managedPlacementSuccesses()
+            + " success / " + performance.vanillaSpawnerPlacementRejects() + " vanilla rejects");
         sendDiagnostic(sender, "Public API", plugin.api() == null ? "not registered" : "registered");
         sendDiagnostic(sender, "Public events", "recovered / essence / placed ready");
         if (core.detail() != null && !core.detail().isBlank()) {
