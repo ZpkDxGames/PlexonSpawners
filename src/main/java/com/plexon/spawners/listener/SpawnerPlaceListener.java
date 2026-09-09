@@ -26,16 +26,16 @@ public final class SpawnerPlaceListener implements Listener {
     }
 
     /**
-     * HIGHEST lets protection/region plugins reject placement first while still
-     * allowing PlexonSpawners to apply the managed entity type before the event
-     * reaches MONITOR observers. MONITOR listeners must not mutate world state.
+     * Apply the managed mob type after normal protection listeners have had a
+     * chance to reject placement. This handler mutates the block; MONITOR does not.
      */
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onSpawnerPlace(final BlockPlaceEvent event) {
+    public void applyManagedSpawnerType(final BlockPlaceEvent event) {
         counters.blockPlaceSeen();
         if (event.getBlockPlaced().getType() != Material.SPAWNER) {
             return;
         }
+
         final EntityType type = spawnerItemService.readSpawnerType(event.getItemInHand());
         if (type == null) {
             counters.vanillaSpawnerPlacementReject();
@@ -46,14 +46,35 @@ public final class SpawnerPlaceListener implements Listener {
         }
 
         spawner.setSpawnedType(type);
-        if (!spawner.update(true, false)) {
+        spawner.update(true, false);
+    }
+
+    /**
+     * Publish success only after every mutable event priority has completed and
+     * the original placement is still accepted. This handler is read-only.
+     */
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void observeManagedSpawnerPlacement(final BlockPlaceEvent event) {
+        if (event.getBlockPlaced().getType() != Material.SPAWNER) {
             return;
         }
-        counters.managedPlacementSuccess();
 
+        final EntityType type = spawnerItemService.readSpawnerType(event.getItemInHand());
+        if (type == null) {
+            return;
+        }
+        if (!(event.getBlockPlaced().getState() instanceof CreatureSpawner spawner)) {
+            return;
+        }
+        if (spawner.getSpawnedType() != type) {
+            return;
+        }
+
+        counters.managedPlacementSuccess();
         if (!Bukkit.isPrimaryThread()) {
             throw new IllegalStateException("PlexonSpawners placement events must fire on the primary server thread");
         }
+
         final String transactionId = UUID.randomUUID().toString();
         Bukkit.getPluginManager().callEvent(new PlexonSpawnerPlacedEvent(
             event.getPlayer(),
