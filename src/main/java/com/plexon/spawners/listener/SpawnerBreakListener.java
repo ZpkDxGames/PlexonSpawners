@@ -2,6 +2,7 @@ package com.plexon.spawners.listener;
 
 import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent;
 import com.plexon.spawners.event.PlexonSpawnerRecoveredEvent;
 import com.plexon.spawners.item.EssenceService;
@@ -32,32 +33,43 @@ public final class SpawnerBreakListener implements Listener {
     private final SpawnerItemService spawnerItemService;
     private final MessageService messages;
     private final WildStackerCompat wildStackerCompat;
+    private final PerformanceCounters counters;
 
     public SpawnerBreakListener(
         final PluginSettings settings,
         final EssenceService essenceService,
         final SpawnerItemService spawnerItemService,
         final MessageService messages,
-        final WildStackerCompat wildStackerCompat
+        final WildStackerCompat wildStackerCompat,
+        final PerformanceCounters counters
     ) {
         this.settings = settings;
         this.essenceService = essenceService;
         this.spawnerItemService = spawnerItemService;
         this.messages = messages;
         this.wildStackerCompat = wildStackerCompat;
+        this.counters = counters;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onSpawnerBreak(final BlockBreakEvent event) {
-        if (!settings.breakingEnabled() || event.getBlock().getType() != Material.SPAWNER) {
+        counters.blockBreakSeen();
+        if (event.getBlock().getType() != Material.SPAWNER) {
+            counters.nonSpawnerFastReject();
+            return;
+        }
+        if (!settings.breakingEnabled()) {
+            counters.disabledReject();
             return;
         }
         if (!settings.isWorldEnabled(event.getBlock().getWorld())) {
+            counters.worldReject();
             return;
         }
         if (!(event.getBlock().getState() instanceof CreatureSpawner spawner)) {
             return;
         }
+        counters.acceptedSpawnerBreak();
 
         final Player player = event.getPlayer();
         EntityType entityType = spawner.getSpawnedType();
@@ -82,6 +94,13 @@ public final class SpawnerBreakListener implements Listener {
 
         final int experience = settings.dropExperience() ? Math.max(0, event.getExpToDrop()) : 0;
         final WildStackerCompat.Result stackResult = wildStackerCompat.unstackOne(spawner, player);
+        switch (stackResult) {
+            case NOT_INSTALLED -> counters.wildStackerNotInstalled();
+            case NOT_STACKED -> counters.wildStackerNotStacked();
+            case SUCCESS -> counters.wildStackerSuccess();
+            case CANCELLED -> counters.wildStackerCancelled();
+            case UNAVAILABLE -> counters.wildStackerDegraded();
+        }
         if (stackResult == WildStackerCompat.Result.UNAVAILABLE
             || stackResult == WildStackerCompat.Result.CANCELLED) {
             return;
@@ -157,6 +176,7 @@ public final class SpawnerBreakListener implements Listener {
                 sourceLocation,
                 spawnerItemService.createSpawner(entityType, 1)
             );
+            counters.qualifiedRecovery();
             final String transactionId = newTransactionId();
             fireRecoveredEvent(
                 player,
@@ -178,12 +198,15 @@ public final class SpawnerBreakListener implements Listener {
         }
 
         final PluginSettings.EssenceRule rule = settings.essenceRule(entityType);
+        counters.essenceRoll();
         if (!passesChance(rule.chance())) {
             return;
         }
 
         final Location sourceLocation = event.getBlock().getLocation();
         deliverEssence(player, sourceLocation, rule.amount());
+        counters.essenceWin();
+        counters.essenceLogicalAmountAwarded(rule.amount());
         final String transactionId = newTransactionId();
         fireEssenceEvent(player, entityType, sourceLocation, rule.amount(), transactionId);
         if (settings.breakFailedMessages()) {
@@ -266,13 +289,15 @@ public final class SpawnerBreakListener implements Listener {
 
     private void deliverEssence(final Player player, final Location sourceLocation, final int totalAmount) {
         final ItemStack[] stacks = essenceService.createStacks(totalAmount);
+        counters.essenceItemStacksCreated(stacks.length);
         if (settings.essenceDelivery() == PluginSettings.EssenceDelivery.INVENTORY) {
-            player.getInventory().addItem(stacks).values().forEach(leftover ->
-                sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover)
-            );
+            final Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stacks);
+            counters.essenceGroundEntitiesCreated(leftovers.size());
+            leftovers.values().forEach(leftover -> sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover));
             return;
         }
 
+        counters.essenceGroundEntitiesCreated(stacks.length);
         for (final ItemStack stack : stacks) {
             sourceLocation.getWorld().dropItemNaturally(sourceLocation, stack);
         }
