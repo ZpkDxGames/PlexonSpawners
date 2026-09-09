@@ -16,10 +16,13 @@ import com.plexon.spawners.message.MessageService;
 import java.util.List;
 import java.util.logging.Level;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.Listener;
+import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class PlexonSpawners extends JavaPlugin {
+public final class PlexonSpawners extends JavaPlugin implements Listener {
     private static final String LEGACY_SPAWNER_NAME =
         "<gradient:#8A2BE2:#D56BFF><b>%mob% Spawner</b></gradient>";
     private static final List<String> LEGACY_SPAWNER_LORE = List.of(
@@ -55,10 +58,15 @@ public final class PlexonSpawners extends JavaPlugin {
 
     @Override
     public void onEnable() {
-        coreBridge = CoreBridgeFactory.resolve(this);
-        coreBridge.registerStarting();
-
         try {
+            coreBridge = CoreBridgeFactory.resolve(this);
+            coreBridge.registerStarting();
+            if (!"CORE".equals(coreBridge.mode())) {
+                throw new IllegalStateException(
+                    "PlexonCore module registration did not reach CORE mode: " + coreBridge.registrationState()
+                );
+            }
+
             saveDefaultConfig();
             migrateConfig();
 
@@ -87,6 +95,7 @@ public final class PlexonSpawners extends JavaPlugin {
             pluginCommand.setExecutor(command);
             pluginCommand.setTabCompleter(command);
 
+            getServer().getPluginManager().registerEvents(this, this);
             getServer().getPluginManager().registerEvents(adminGui, this);
             getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
@@ -105,12 +114,21 @@ public final class PlexonSpawners extends JavaPlugin {
                 this
             );
 
-            coreBridge.markReady("Spawner engine, cached item runtime, public API/events and diagnostics ready");
+            coreBridge.markReady(
+                "Core-native spawner engine, item runtime, public API/events, integrations and diagnostics ready"
+            );
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
-                + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode.");
+                + " enabled for Paper 26.2 in " + coreBridge.mode()
+                + " mode with PlexonCore API " + coreBridge.apiVersion() + ".");
         } catch (RuntimeException | LinkageError exception) {
-            coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
-            getLogger().log(Level.SEVERE, "PlexonSpawners failed to initialize safely.", exception);
+            getServer().getServicesManager().unregisterAll(this);
+            if (coreBridge != null) {
+                coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
+            }
+            getLogger().log(Level.SEVERE,
+                "PlexonSpawners failed to initialize as a PlexonCore module; standalone fallback is disabled.",
+                exception
+            );
             throw exception;
         }
     }
@@ -123,22 +141,41 @@ public final class PlexonSpawners extends JavaPlugin {
         }
     }
 
+    @EventHandler
+    public void onRequiredCoreDisable(final PluginDisableEvent event) {
+        if (!event.getPlugin().getName().equalsIgnoreCase("PlexonCore") || !isEnabled()) {
+            return;
+        }
+        getLogger().severe("PlexonCore was disabled while PlexonSpawners was active; disabling PlexonSpawners safely.");
+        getServer().getPluginManager().disablePlugin(this);
+    }
+
     public void reloadPlugin() {
-        reloadConfig();
-        settings.reload(getConfig());
-        if (messages != null) {
-            messages.reload();
+        try {
+            reloadConfig();
+            settings.reload(getConfig());
+            if (messages != null) {
+                messages.reload();
+            }
+            if (essenceService != null) {
+                essenceService.reload();
+            }
+            if (spawnerItemService != null) {
+                spawnerItemService.reload();
+            }
+            if (wildStackerCompat != null) {
+                wildStackerCompat.refresh();
+            }
+            reportConfigurationWarnings();
+            if (coreBridge != null) {
+                coreBridge.markReady("Configuration and cached runtime services reloaded successfully");
+            }
+        } catch (RuntimeException | LinkageError exception) {
+            if (coreBridge != null) {
+                coreBridge.markDegraded("Reload failed: " + exception.getClass().getSimpleName());
+            }
+            throw exception;
         }
-        if (essenceService != null) {
-            essenceService.reload();
-        }
-        if (spawnerItemService != null) {
-            spawnerItemService.reload();
-        }
-        if (wildStackerCompat != null) {
-            wildStackerCompat.refresh();
-        }
-        reportConfigurationWarnings();
     }
 
     public PluginSettings settings() {
