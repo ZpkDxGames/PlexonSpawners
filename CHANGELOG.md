@@ -1,5 +1,19 @@
 # Changelog
 
+## 2.3.1 - PlexonCore Integration Hotfix
+
+- Made PlexonCore 1.x a required runtime dependency and moved PlexonSpawners to deterministic `POSTWORLD` loading after Core `STARTUP` initialization.
+- Removed the silent standalone downgrade that could leave PlexonSpawners visible as `Legacy/Standalone` even when PlexonCore was installed.
+- Added fail-fast validation for the PlexonCore plugin, ServicesManager API registration, API owner, API range, and shared Core services.
+- Hardened module `spawners` registration and safely reclaim stale self-registrations left by disabled prior plugin instances.
+- Registration rejection now stops startup with the Core registry reason instead of enabling a detached runtime.
+- Added Core integration-registry health publishing alongside module STARTING/READY/DEGRADED/FAILED/DISABLED state updates.
+- Added safe shutdown behavior if PlexonCore is disabled while PlexonSpawners is active.
+- Removed the obsolete standalone bridge and standalone-mode unit test.
+- Added a Core-binding distribution test and strengthened the Gradle/CI JAR contract to require `depend: PlexonCore` while continuing to reject shaded Core classes.
+- Fixed managed spawner placement mutating world state from a `MONITOR` listener by moving the handler to `HIGHEST` with `ignoreCancelled = true`.
+- Preserved the 2.3.0 hot-path, WildStacker fail-closed, Essence, PDC identity, public API/event, and database-free behavior.
+
 ## 2.3.0 - Stable Performance & Reliability
 
 - Cached WildStacker lifecycle/API resolution so steady-state spawner breaks no longer perform plugin lookup, class loading, or method discovery.
