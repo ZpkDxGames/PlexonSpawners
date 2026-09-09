@@ -25,7 +25,12 @@ public final class SpawnerPlaceListener implements Listener {
         this.counters = counters;
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    /**
+     * HIGHEST lets protection/region plugins reject placement first while still
+     * allowing PlexonSpawners to apply the managed entity type before the event
+     * reaches MONITOR observers. MONITOR listeners must not mutate world state.
+     */
+    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
     public void onSpawnerPlace(final BlockPlaceEvent event) {
         counters.blockPlaceSeen();
         if (event.getBlockPlaced().getType() != Material.SPAWNER) {
