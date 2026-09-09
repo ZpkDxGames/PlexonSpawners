@@ -62,6 +62,7 @@ public final class PlexonSpawners extends JavaPlugin {
 
             messages = new MessageService(this);
             settings.reload(getConfig());
+            reportConfigurationWarnings();
             essenceService = new EssenceService(this);
             spawnerItemService = new SpawnerItemService(this);
             api = new PlexonSpawnersApi(essenceService, spawnerItemService);
@@ -85,13 +86,14 @@ public final class PlexonSpawners extends JavaPlugin {
             pluginCommand.setTabCompleter(command);
 
             getServer().getPluginManager().registerEvents(adminGui, this);
+            getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
                 new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages, wildStackerCompat),
                 this
             );
             getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
 
-            coreBridge.markReady("Spawner engine, managed items, public API/events and diagnostics ready");
+            coreBridge.markReady("Spawner engine, cached item runtime, public API/events and diagnostics ready");
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
                 + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode.");
         } catch (RuntimeException | LinkageError exception) {
@@ -121,6 +123,10 @@ public final class PlexonSpawners extends JavaPlugin {
         if (spawnerItemService != null) {
             spawnerItemService.reload();
         }
+        if (wildStackerCompat != null) {
+            wildStackerCompat.refresh();
+        }
+        reportConfigurationWarnings();
     }
 
     public PluginSettings settings() {
@@ -137,6 +143,20 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public WildStackerCompat wildStackerCompat() {
         return wildStackerCompat;
+    }
+
+    public EssenceService essenceService() {
+        return essenceService;
+    }
+
+    public SpawnerItemService spawnerItemService() {
+        return spawnerItemService;
+    }
+
+    private void reportConfigurationWarnings() {
+        for (final String warning : settings.validationWarnings()) {
+            getLogger().warning("Configuration: " + warning);
+        }
     }
 
     private void migrateConfig() {
@@ -176,9 +196,14 @@ public final class PlexonSpawners extends JavaPlugin {
             changed = true;
         }
 
+        if (configVersion < 4) {
+            getConfig().set("config-version", 4);
+            changed = true;
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 2.2 compatibility.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 2.3 compatibility.");
         }
     }
 }
