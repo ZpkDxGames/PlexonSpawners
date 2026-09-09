@@ -1,40 +1,41 @@
 package com.plexon.spawners.integration.core;
 
-import java.lang.reflect.InvocationTargetException;
-import java.util.logging.Level;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
+/**
+ * Resolves the required PlexonCore bridge.
+ *
+ * <p>PlexonSpawners is a PlexonCore module. A present-but-unusable Core must not
+ * be silently converted into a legacy/standalone runtime, because that leaves
+ * the gameplay plugin enabled while the ecosystem health view reports a false
+ * legacy state. Startup therefore fails fast with a precise reason whenever
+ * the required Core runtime cannot be bound.</p>
+ */
 public final class CoreBridgeFactory {
     private static final String CORE_PLUGIN = "PlexonCore";
-    private static final String CORE_BRIDGE_CLASS = "com.plexon.spawners.integration.core.PlexonCoreBridge";
 
     private CoreBridgeFactory() {}
 
     public static CoreBridge resolve(JavaPlugin plugin) {
-        Plugin corePlugin = Bukkit.getPluginManager().getPlugin(CORE_PLUGIN);
+        final Plugin corePlugin = Bukkit.getPluginManager().getPlugin(CORE_PLUGIN);
         if (corePlugin == null) {
-            plugin.getLogger().info("PlexonCore not installed; starting PlexonSpawners in standalone compatibility mode.");
-            return new StandaloneCoreBridge(false, "-", "-", "PlexonCore is not installed");
+            throw new IllegalStateException("Required dependency PlexonCore is not installed");
         }
-        String version = corePlugin.getPluginMeta().getVersion();
         if (!corePlugin.isEnabled()) {
-            plugin.getLogger().warning("PlexonCore is installed but disabled; starting PlexonSpawners standalone.");
-            return new StandaloneCoreBridge(true, version, "-", "PlexonCore is installed but disabled");
+            throw new IllegalStateException(
+                "Required dependency PlexonCore " + corePlugin.getPluginMeta().getVersion() + " is not enabled"
+            );
         }
-        try {
-            Class<?> type = Class.forName(CORE_BRIDGE_CLASS, true, CoreBridgeFactory.class.getClassLoader());
-            return (CoreBridge) type.getConstructor(JavaPlugin.class).newInstance(plugin);
-        } catch (InvocationTargetException exception) {
-            Throwable cause = exception.getCause() == null ? exception : exception.getCause();
-            plugin.getLogger().log(Level.WARNING,
-                "PlexonCore is present but its API could not be resolved; using standalone compatibility mode.", cause);
-            return new StandaloneCoreBridge(true, version, "-", "PlexonCore API service is unavailable");
-        } catch (ReflectiveOperationException | LinkageError | RuntimeException exception) {
-            plugin.getLogger().log(Level.WARNING,
-                "PlexonCore is present but could not be linked safely; using standalone compatibility mode.", exception);
-            return new StandaloneCoreBridge(true, version, "-", "PlexonCore API linkage is unavailable");
+
+        final CoreBridge bridge = new PlexonCoreBridge(plugin);
+        if (!bridge.available() || !bridge.compatible()) {
+            throw new IllegalStateException(
+                "PlexonCore API " + bridge.apiVersion() + " is outside supported range "
+                    + CoreBridge.SUPPORTED_API_RANGE
+            );
         }
+        return bridge;
     }
 }
