@@ -2,11 +2,13 @@ name: PlexonSpawners
 version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
+load: POSTWORLD
 author: ZpkDxGames
-description: Core-native spawner handling and physical Spawner Essence with standalone compatibility.
+website: https://github.com/ZpkDxGames/PlexonSpawners
+description: PlexonCore-native spawner handling and physical Spawner Essence.
 prefix: PlexonSpawners
 
-softdepend:
+depend:
   - PlexonCore
 
 # PlexonSpawners intentionally loads before known spawner managers so its
