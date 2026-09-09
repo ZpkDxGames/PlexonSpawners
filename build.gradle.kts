@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "2.3.0"
+version = "2.3.1"
 
 val pluginVersion = version.toString()
 
@@ -68,7 +68,7 @@ tasks.jar {
 
 val verifyDistribution = tasks.register("verifyDistribution") {
     group = "verification"
-    description = "Checks the PlexonSpawners distribution contract and Core isolation."
+    description = "Checks the PlexonSpawners distribution contract and required PlexonCore binding."
     dependsOn(tasks.jar)
     doLast {
         val archive = tasks.jar.get().archiveFile.get().asFile
@@ -83,8 +83,18 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",
                 "com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class",
                 "com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class",
-                "com/plexon/spawners/integration/core/CoreBridge.class"
+                "com/plexon/spawners/integration/core/CoreBridge.class",
+                "com/plexon/spawners/integration/core/CoreBridgeFactory.class",
+                "com/plexon/spawners/integration/core/PlexonCoreBridge.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
+
+            val pluginYml = zip.getInputStream(zip.getEntry("plugin.yml")).bufferedReader().use { it.readText() }
+            require(pluginYml.contains("depend:\n  - PlexonCore")) {
+                "plugin.yml must declare PlexonCore as a required dependency"
+            }
+            require(!pluginYml.contains("softdepend:\n  - PlexonCore")) {
+                "plugin.yml must not silently downgrade PlexonCore to a soft dependency"
+            }
             require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {
                 "PlexonCore runtime classes must not be shaded into PlexonSpawners"
             }
