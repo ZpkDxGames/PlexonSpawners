@@ -1,5 +1,22 @@
 # Changelog
 
+## 2.3.0 - Stable Performance & Reliability
+
+- Cached WildStacker lifecycle/API resolution so steady-state spawner breaks no longer perform plugin lookup, class loading, or method discovery.
+- Added safe WildStacker enable/disable lifecycle handling and preserved fail-closed behavior for incompatible, cancelled, degraded, or disabled providers.
+- Compiled gameplay configuration into an immutable runtime snapshot with resolved world UUIDs, precompiled per-EntityType Essence rules, and validation warnings.
+- Reduced accepted-break allocations by making transaction UUIDs lazy, reusing successful-outcome locations, and avoiding unnecessary Silk bypass permission checks.
+- Added per-EntityType managed spawner item template caching while preserving exact BlockStateMeta and PDC identity.
+- Added O(1) managed `spawner_type` PDC lookup and cached EntityType display names.
+- Added optional `spawner_schema` PDC versioning on new managed items while keeping existing 2.x managed spawners readable.
+- Cached Essence maximum stack size and added minimum-stack bulk creation.
+- Changed inventory Essence delivery to one bounded `Inventory#addItem` operation with overflow handled once.
+- Added warnings for configurations capable of creating excessive ground Essence item entities without silently changing the configured logical award.
+- Expanded diagnostics with WildStacker resolution/cache state, world-filter state, Essence defaults/overrides/max-stack size, managed template cache size, entity-key lookup size, and config warning count.
+- Precomputed the admin spawnable-entity completion list.
+- Preserved Paper 26.2 / Java 25, optional PlexonCore 1.x, public spawner events, strict Silk rules, one-unit stacked-spawner recovery, protection compatibility, PDC item identity, and database-free/stateless runtime.
+- Updated CI/release automation for `PlexonSpawners-2.3.0.jar`, `SHA256SUMS.txt`, tag `v2.3.0`, and verified GitHub Release publishing.
+
 ## 2.2.0 - PlexonCore Migration & Public Spawner Event API
 
 - Migrated PlexonSpawners to the established PlexonCore module bridge while preserving standalone operation.

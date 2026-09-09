@@ -2,6 +2,7 @@ package com.plexon.spawners.command;
 
 import com.plexon.spawners.PlexonSpawners;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
 import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.item.EssenceService;
@@ -25,6 +26,13 @@ import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
 public final class PlexonSpawnersCommand implements CommandExecutor, TabCompleter {
+    private static final List<String> SPAWNABLE_ENTITY_NAMES = Arrays.stream(EntityType.values())
+        .filter(EntityType::isAlive)
+        .filter(EntityType::isSpawnable)
+        .map(EntityType::name)
+        .sorted()
+        .toList();
+
     private final PlexonSpawners plugin;
     private final AdminGui adminGui;
     private final EssenceService essenceService;
@@ -98,6 +106,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
 
     private boolean diagnostics(final CommandSender sender) {
         final CoreBridge core = plugin.coreBridge();
+        final PerformanceCounters.Snapshot performance = plugin.performanceCounters().snapshot();
         sender.sendMessage(messages.parse("<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Diagnostics</b></gradient>"));
         sendDiagnostic(sender, "Plugin", plugin.getPluginMeta().getVersion());
         sendDiagnostic(sender, "Paper", Bukkit.getServer().getVersion());
@@ -110,9 +119,39 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         sendDiagnostic(sender, "Take ownership", Boolean.toString(plugin.settings().takeOwnership()));
         sendDiagnostic(sender, "Silk required", Integer.toString(plugin.settings().requiredSilkTouchLevel()));
         sendDiagnostic(sender, "Bypass enabled", Boolean.toString(plugin.settings().silkBypassPermissionEnabled()));
+        sendDiagnostic(sender, "World filter", plugin.settings().enabledWorldCount() == 0
+            ? "all worlds"
+            : plugin.settings().enabledWorldCount() + " configured");
         sendDiagnostic(sender, "Essence", enabled(plugin.settings().essenceEnabled()));
         sendDiagnostic(sender, "Delivery", plugin.settings().essenceDelivery().name().toLowerCase(Locale.ROOT));
+        sendDiagnostic(sender, "Essence default", plugin.settings().defaultEssenceAmount()
+            + " @ " + plugin.settings().defaultEssenceChance() + "%");
+        sendDiagnostic(sender, "Essence overrides", Integer.toString(plugin.settings().essenceOverrideCount()));
+        sendDiagnostic(sender, "Essence max stack", Integer.toString(essenceService.maxStackSize()));
         sendDiagnostic(sender, "WildStacker", plugin.wildStackerCompat().status());
+        sendDiagnostic(sender, "WildStacker resolution", plugin.wildStackerCompat().resolutionMode());
+        sendDiagnostic(sender, "WildStacker API cache", plugin.wildStackerCompat().methodCacheReady() ? "ready" : "not ready");
+        sendDiagnostic(sender, "Managed template cache", Integer.toString(spawnerItemService.templateCacheSize()));
+        sendDiagnostic(sender, "Entity key lookup", Integer.toString(spawnerItemService.entityKeyLookupSize()));
+        sendDiagnostic(sender, "Config warnings", Integer.toString(plugin.settings().validationWarnings().size()));
+        sendDiagnostic(sender, "Break events", Long.toString(performance.blockBreakEventsSeen()));
+        sendDiagnostic(sender, "Fast rejects", performance.nonSpawnerFastRejects()
+            + " non-spawner / " + performance.disabledRejects() + " disabled / "
+            + performance.worldRejects() + " world");
+        sendDiagnostic(sender, "Accepted spawner breaks", Long.toString(performance.acceptedSpawnerBreaks()));
+        sendDiagnostic(sender, "WildStacker outcomes", performance.wildStackerSuccess() + " success / "
+            + performance.wildStackerNotStacked() + " not-stacked / "
+            + performance.wildStackerNotInstalled() + " absent / "
+            + performance.wildStackerCancelled() + " cancelled / "
+            + performance.wildStackerDegraded() + " degraded");
+        sendDiagnostic(sender, "Recoveries", Long.toString(performance.qualifiedRecoveries()));
+        sendDiagnostic(sender, "Essence outcomes", performance.essenceWins() + "/" + performance.essenceRolls()
+            + " wins/rolls, " + performance.essenceLogicalAmountAwarded() + " logical");
+        sendDiagnostic(sender, "Essence physical", performance.essenceItemStacksCreated()
+            + " stacks / " + performance.essenceGroundEntitiesCreated() + " ground entities");
+        sendDiagnostic(sender, "Placement events", Long.toString(performance.blockPlaceEventsSeen()));
+        sendDiagnostic(sender, "Managed placements", performance.managedPlacementSuccesses()
+            + " success / " + performance.vanillaSpawnerPlacementRejects() + " vanilla rejects");
         sendDiagnostic(sender, "Public API", plugin.api() == null ? "not registered" : "registered");
         sendDiagnostic(sender, "Public events", "recovered / essence / placed ready");
         if (core.detail() != null && !core.detail().isBlank()) {
@@ -128,7 +167,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         );
     }
 
-    private static String enabled(boolean value) {
+    private static String enabled(final boolean value) {
         return value ? "enabled" : "disabled";
     }
 
@@ -227,15 +266,10 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
     }
 
     private void giveEssence(final Player target, final int total) {
-        int remaining = total;
-        final int max = essenceService.template().getMaxStackSize();
-        while (remaining > 0) {
-            final int amount = Math.min(max, remaining);
-            target.getInventory().addItem(essenceService.create(amount)).values().forEach(leftover ->
-                target.getWorld().dropItemNaturally(target.getLocation(), leftover)
-            );
-            remaining -= amount;
-        }
+        final ItemStack[] stacks = essenceService.createStacks(total);
+        target.getInventory().addItem(stacks).values().forEach(leftover ->
+            target.getWorld().dropItemNaturally(target.getLocation(), leftover)
+        );
     }
 
     private static Integer positiveInt(final String input) {
@@ -275,12 +309,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
                 return filter(Bukkit.getOnlinePlayers().stream().map(Player::getName).toList(), args[1]);
             }
             if (args.length == 3) {
-                return filter(Arrays.stream(EntityType.values())
-                    .filter(EntityType::isAlive)
-                    .filter(EntityType::isSpawnable)
-                    .map(EntityType::name)
-                    .sorted()
-                    .toList(), args[2]);
+                return filter(SPAWNABLE_ENTITY_NAMES, args[2]);
             }
         }
         if (args[0].equalsIgnoreCase("essence")) {

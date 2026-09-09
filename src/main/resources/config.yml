@@ -1,5 +1,5 @@
 # ============================================================================
-# PlexonSpawners 2.1.0 - Main Configuration
+# PlexonSpawners 2.3.0 - Main Configuration
 # ============================================================================
 # Most gameplay settings can also be changed in-game with:
 #   /pspawners admin
@@ -12,9 +12,12 @@
 #
 # The core plugin does not require a database. Spawner type information and
 # Spawner Essence identity are stored directly on their ItemStacks.
+#
+# 2.3.0 compiles these values into bounded runtime caches on enable/reload.
+# Gameplay event paths do not read raw YAML.
 # ============================================================================
 
-config-version: 2
+config-version: 4
 
 breaking:
   # MASTER SWITCH
@@ -78,7 +81,8 @@ breaking:
 
   # Restrict PlexonSpawners break handling to specific worlds.
   # [] means every world is enabled.
-  # World names are case-insensitive.
+  # World names are case-insensitive. Loaded configured worlds are resolved to
+  # UUIDs on enable/reload with name fallback for worlds loaded later.
   #
   # Example:
   # enabled-worlds:
@@ -108,6 +112,9 @@ essence:
   # Number of physical Spawner Essence items delivered when the chance roll
   # succeeds. A mob-specific amount can replace this value.
   # Range: 1-4096.
+  #
+  # Very large GROUND awards can create many item entities. 2.3.0 warns on
+  # dangerous configurations but never silently reduces the logical reward.
   default-amount: 1
 
   # Where successful Essence drops are delivered.
