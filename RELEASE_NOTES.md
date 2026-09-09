@@ -1,67 +1,60 @@
-# PlexonSpawners 2.3.0 — Performance & Reliability
+# PlexonSpawners 2.3.1 — PlexonCore Integration Hotfix
 
-PlexonSpawners 2.3.0 is a focused performance, scalability and reliability release. It keeps the 2.2.0 gameplay/API contract while moving repeated integration discovery, item construction and entity lookup work out of gameplay hot paths.
+PlexonSpawners 2.3.1 fixes the startup/module-registration flaw that could leave version 2.3.0 visible to PlexonCore as `Legacy/Standalone` even while PlexonCore was installed.
 
-## Performance
+## PlexonCore binding
 
-- WildStacker integration is discovered and validated at lifecycle boundaries instead of on every accepted spawner break.
-- WildStacker API accessors are cached; stacked-object accessors are resolved once per compatible provider class and reused.
-- Managed spawner items use per-EntityType cached templates and clone only the final awarded stack.
-- Managed placement resolves stored `spawner_type` PDC keys through an O(1) lookup instead of scanning every `EntityType`.
-- Entity display names and the admin spawnable-entity list are precomputed.
-- World restrictions prefer resolved world UUIDs and only use normalized-name fallback when needed.
-- Silk bypass permission checks only run when the held tool actually fails the configured Silk requirement.
-- Transaction UUIDs are generated only when a successful public outcome needs one.
-- Successful break outcomes reuse a single source `Location` snapshot.
-- Essence max-stack size is cached.
-- Bulk Essence awards create the minimum physical stack set and inventory delivery uses a single `Inventory#addItem` call.
+- PlexonCore 1.x is now a required runtime dependency.
+- PlexonSpawners loads at `POSTWORLD` after PlexonCore's `STARTUP` initialization.
+- Startup resolves `PlexonCoreAPI` from Bukkit `ServicesManager` and verifies that the service registration is owned by the real PlexonCore plugin.
+- Core API `>=1.0 <2.0` is validated before gameplay initialization.
+- Core module, integration, text, GUI, item, scheduler, persistence, configuration and diagnostics services are verified before PlexonSpawners registers gameplay listeners.
+- Module `spawners` must be owned successfully before the plugin can reach READY.
+- A stale `spawners` registration left by an older disabled PlexonSpawners instance can be reclaimed safely.
+- Active or foreign module registrations are never force-removed.
+- Registration/linkage failures now stop PlexonSpawners with a precise server-log error instead of silently enabling standalone mode.
+- Module health and provider health are published through PlexonCore's module and integration registries.
+- If PlexonCore is disabled while PlexonSpawners is active, PlexonSpawners disables itself safely rather than running detached.
 
-## Reliability
+## Deep-scan reliability fix
 
-- WildStacker remains fail closed. Missing/incompatible APIs, cancelled unstack operations and a disabled provider never cause PlexonSpawners to force-delete a possibly stacked spawner.
-- WildStacker enable/disable lifecycle events refresh or invalidate the bridge safely without per-break plugin discovery.
-- Existing 2.x managed spawners remain readable. New managed items include an internal optional schema marker for future compatibility.
-- PDC-backed managed-spawner and Spawner Essence identity remains authoritative; visual lookalikes are not trusted.
-- Large ground-delivery Essence configurations produce startup/reload warnings instead of silently changing configured rewards.
-- Runtime settings are compiled into one immutable snapshot and swapped after parsing.
-- Configuration validation warnings are exposed through startup logs and diagnostics.
+Managed spawner placement previously modified the placed `CreatureSpawner` from a `BlockPlaceEvent` listener running at `MONITOR`. 2.3.1 moves that mutation to `HIGHEST` with `ignoreCancelled = true`, preserving protection-plugin cancellation and keeping MONITOR observers read-only.
 
-## Diagnostics
+## Preserved from 2.3.0
 
-`/pspawners diagnostics` now includes:
-
-- Paper/Java/Core mode and Core API range;
-- WildStacker state, resolution mode and cached API readiness;
-- break ownership, Silk requirement and world-filter state;
-- Essence delivery/defaults/override count/max stack size;
-- managed-spawner template cache size;
-- entity-key lookup size;
-- configuration warning count;
-- public API/event readiness.
+- lifecycle-cached WildStacker integration;
+- exact one-unit stacked-spawner recovery with fail-closed compatibility behavior;
+- immutable gameplay settings snapshot;
+- cached managed-spawner templates and O(1) PDC entity lookup;
+- minimum-stack bulk Essence delivery;
+- strict Silk Touch qualification and optional explicit bypass;
+- existing 2.x managed item compatibility;
+- public PlexonSpawners service API and synchronous recovery/Essence/placement events;
+- database-free, stateless spawner runtime and no global chunk/entity scans.
 
 ## Compatibility
 
 - Paper 26.2
 - Java 25
-- optional PlexonCore 1.x
-- optional WildStacker compatibility preserved
-- public `PlexonSpawnerRecoveredEvent`, `PlexonSpawnerEssenceAwardedEvent` and `PlexonSpawnerPlacedEvent` preserved
+- PlexonCore 1.0.0 / API 1.x **required**
+- WildStacker optional
 - no database migration
-- no persistent spawner-location index
-- no global chunk/entity scans
-- no repeating per-spawner tasks
+- no gameplay config schema reset
 
-## Upgrade
+## Upgrade from 2.3.0
 
-1. Stop the server.
+1. Stop the server completely.
 2. Back up the current PlexonSpawners JAR and `plugins/PlexonSpawners/` directory.
-3. Replace the old JAR with `PlexonSpawners-2.3.0.jar`.
-4. Keep the existing configuration/data directory.
-5. Start the server and run `/pspawners diagnostics`.
-6. Validate one Silk recovery, one failed-Silk Essence outcome, one managed placement and one stacked-spawner recovery.
-7. Run a short Spark comparison under ordinary mining and stacked-spawner use before declaring the production rollout complete.
+3. Confirm `PlexonCore-1.0.0.jar` is installed and loads successfully.
+4. Replace the old PlexonSpawners JAR with `PlexonSpawners-2.3.1.jar`.
+5. Perform a full server start; do not use a plugin hot-reload for the first verification.
+6. Run `/plexon modules` and confirm `PlexonSpawners — READY` rather than `Legacy/Standalone`.
+7. Run `/pspawners diagnostics` and confirm `Mode: CORE`, Core API `1.0`, and module `READY`.
+8. Validate one Silk recovery, one failed-Silk Essence outcome, one managed placement and one stacked-spawner recovery.
+
+If startup still fails, retain the full PlexonSpawners exception from the server log. 2.3.1 intentionally exposes Core-binding failures instead of hiding them behind standalone mode.
 
 ## Release assets
 
-- `PlexonSpawners-2.3.0.jar`
+- `PlexonSpawners-2.3.1.jar`
 - `SHA256SUMS.txt`
