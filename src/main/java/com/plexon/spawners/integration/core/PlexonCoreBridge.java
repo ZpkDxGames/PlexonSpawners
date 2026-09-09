@@ -110,7 +110,12 @@ public final class PlexonCoreBridge implements CoreBridge {
         if (!compatible || !ownsRegistration) {
             return;
         }
-        core.modules().updateState(MODULE_ID, state, newDetail);
+        if (!core.modules().updateState(MODULE_ID, plugin, state, newDetail)) {
+            ownsRegistration = false;
+            registrationState = "NOT_OWNER";
+            detail = "PlexonCore module ownership changed; state update rejected";
+            return;
+        }
         registrationState = state.name();
         detail = newDetail == null ? "" : newDetail;
     }
@@ -120,9 +125,7 @@ public final class PlexonCoreBridge implements CoreBridge {
         if (!ownsRegistration) {
             return;
         }
-        core.modules().find(MODULE_ID)
-            .filter(descriptor -> descriptor.plugin() == plugin)
-            .ifPresent(descriptor -> core.modules().unregister(MODULE_ID));
+        core.modules().unregisterOwnedBy(plugin);
         ownsRegistration = false;
         registrationState = "UNREGISTERED";
     }
