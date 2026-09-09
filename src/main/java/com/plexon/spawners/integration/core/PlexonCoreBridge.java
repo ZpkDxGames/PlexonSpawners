@@ -7,9 +7,12 @@ import com.zpkdxgames.plexoncore.module.ModuleRegistry;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleDescriptor;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleState;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleVersionRange;
+import com.zpkdxgames.plexoncore.text.TextService.TextMode;
 import java.time.Instant;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import net.kyori.adventure.text.Component;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.RegisteredServiceProvider;
@@ -30,7 +33,8 @@ public final class PlexonCoreBridge implements CoreBridge {
         "wildstacker-compat",
         "stateless-runtime",
         "core-native-module",
-        "core-health-publishing"
+        "core-health-publishing",
+        "core-text-service"
     );
 
     private final JavaPlugin plugin;
@@ -98,6 +102,16 @@ public final class PlexonCoreBridge implements CoreBridge {
                 .orElse("PlexonCore module registration was lost");
         }
         return detail;
+    }
+
+    @Override
+    public Component renderMiniMessage(String trustedTemplate) {
+        return core.text().render(TextMode.MINIMESSAGE, trustedTemplate);
+    }
+
+    @Override
+    public Component renderTemplate(String trustedTemplate, Map<String, ?> runtimeValues) {
+        return core.text().renderTemplate(trustedTemplate, runtimeValues);
     }
 
     @Override
