@@ -1,14 +1,14 @@
 package com.plexon.spawners.message;
 
+import com.plexon.spawners.integration.core.CoreBridge;
+import java.io.File;
+import java.io.IOException;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.command.CommandSender;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.plugin.java.JavaPlugin;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.Map;
 
 public final class MessageService {
     private static final Map<String, String> LEGACY_DEFAULTS = Map.ofEntries(
@@ -44,11 +44,12 @@ public final class MessageService {
     );
 
     private final JavaPlugin plugin;
-    private final MiniMessage miniMessage = MiniMessage.miniMessage();
+    private final CoreBridge core;
     private YamlConfiguration messages;
 
-    public MessageService(final JavaPlugin plugin) {
+    public MessageService(final JavaPlugin plugin, final CoreBridge core) {
         this.plugin = plugin;
+        this.core = core;
         reload();
     }
 
@@ -72,15 +73,22 @@ public final class MessageService {
 
     public Component component(final String key, final Map<String, String> placeholders, final boolean includePrefix) {
         final String prefix = includePrefix ? messages.getString("prefix", "") : "";
-        String raw = messages.getString(key, "<red>Missing message: " + key + "</red>");
-        for (final Map.Entry<String, String> entry : placeholders.entrySet()) {
-            raw = raw.replace("%" + entry.getKey() + "%", escape(entry.getValue()));
+        String template = prefix + messages.getString(key, "<red>Missing message: " + key + "</red>");
+        if (placeholders.isEmpty()) {
+            return core.renderMiniMessage(template);
         }
-        return miniMessage.deserialize(prefix + raw);
+
+        final Map<String, Object> values = new LinkedHashMap<>();
+        for (final Map.Entry<String, String> entry : placeholders.entrySet()) {
+            final String resolver = normalizeResolver(entry.getKey());
+            template = template.replace("%" + entry.getKey() + "%", "<" + resolver + ">");
+            values.put(resolver, entry.getValue());
+        }
+        return core.renderTemplate(template, values);
     }
 
     public Component parse(final String raw) {
-        return miniMessage.deserialize(raw);
+        return core.renderMiniMessage(raw);
     }
 
     private void migrateLegacyDefaults(final File file) {
@@ -105,7 +113,7 @@ public final class MessageService {
         }
     }
 
-    private static String escape(final String input) {
-        return input.replace("<", "\\<").replace(">", "\\>");
+    private static String normalizeResolver(final String input) {
+        return input.toLowerCase(java.util.Locale.ROOT).replaceAll("[^a-z0-9_-]", "_");
     }
 }
