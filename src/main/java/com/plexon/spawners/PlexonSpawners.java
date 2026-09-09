@@ -4,6 +4,7 @@ import com.plexon.spawners.api.PlexonSpawnersApi;
 import com.plexon.spawners.command.PlexonSpawnersCommand;
 import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
 import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.integration.core.CoreBridgeFactory;
@@ -43,6 +44,7 @@ public final class PlexonSpawners extends JavaPlugin {
     );
 
     private final PluginSettings settings = new PluginSettings();
+    private final PerformanceCounters performanceCounters = new PerformanceCounters();
 
     private MessageService messages;
     private EssenceService essenceService;
@@ -88,10 +90,20 @@ public final class PlexonSpawners extends JavaPlugin {
             getServer().getPluginManager().registerEvents(adminGui, this);
             getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
-                new SpawnerBreakListener(settings, essenceService, spawnerItemService, messages, wildStackerCompat),
+                new SpawnerBreakListener(
+                    settings,
+                    essenceService,
+                    spawnerItemService,
+                    messages,
+                    wildStackerCompat,
+                    performanceCounters
+                ),
                 this
             );
-            getServer().getPluginManager().registerEvents(new SpawnerPlaceListener(spawnerItemService), this);
+            getServer().getPluginManager().registerEvents(
+                new SpawnerPlaceListener(spawnerItemService, performanceCounters),
+                this
+            );
 
             coreBridge.markReady("Spawner engine, cached item runtime, public API/events and diagnostics ready");
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
@@ -151,6 +163,10 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public SpawnerItemService spawnerItemService() {
         return spawnerItemService;
+    }
+
+    public PerformanceCounters performanceCounters() {
+        return performanceCounters;
     }
 
     private void reportConfigurationWarnings() {
