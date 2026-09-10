@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - 'agent/**'
+      - 'phase2/**'
       - 'release/**'
   pull_request:
   workflow_dispatch:
@@ -17,7 +18,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PLUGIN_VERSION: '2.3.1'
+  PLUGIN_VERSION: '3.0.0-rc.1'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
 jobs:
@@ -62,9 +63,9 @@ jobs:
           test -f "$JAR"
           jar tf "$JAR" | grep -q '^plugin.yml$'
           jar tf "$JAR" | grep -q '^com/plexon/spawners/PlexonSpawners.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/managed/ManagedSpawnerRegistry.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/managed/SpawnerOriginService.class$'
+          jar tf "$JAR" | grep -q '^com/plexon/spawners/gui/SpawnerControlGui.class$'
           if jar tf "$JAR" | grep -q '^com/zpkdxgames/plexoncore/'; then
             echo 'PlexonCore classes were shaded into the plugin JAR.' >&2
             exit 1
@@ -85,60 +86,54 @@ jobs:
           path: build/release/
           if-no-files-found: error
 
-  release-tag:
+  release-candidate:
     if: >-
       github.event_name == 'push' &&
-      github.ref == 'refs/heads/main' &&
-      startsWith(github.event.head_commit.message, 'release: PlexonSpawners 2.3.1')
+      startsWith(github.ref, 'refs/heads/release/') &&
+      contains(env.PLUGIN_VERSION, '-rc.')
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - name: Checkout release commit
+      - name: Checkout candidate commit
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Download verified build assets
+      - name: Download verified candidate assets
         uses: actions/download-artifact@v4
         with:
           name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
           path: release-assets
 
-      - name: Verify downloaded release assets
+      - name: Verify candidate assets
         shell: bash
         run: |
-          JAR="release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          SUMS="release-assets/SHA256SUMS.txt"
-          test -f "$JAR"
-          test -f "$SUMS"
+          test -f "release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
+          test -f "release-assets/SHA256SUMS.txt"
           (cd release-assets && sha256sum --check SHA256SUMS.txt)
 
-      - name: Create v2.3.1 tag after successful main verification
-        shell: bash
-        run: |
-          TAG="v${PLUGIN_VERSION}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "${TAG} already exists; refusing to move an existing release tag." >&2
-            exit 1
-          fi
-          git tag "${TAG}" "${GITHUB_SHA}"
-          git push origin "refs/tags/${TAG}"
-
-      - name: Publish GitHub Release assets
+      - name: Publish immutable prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           TAG="v${PLUGIN_VERSION}"
-          JAR="release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          SUMS="release-assets/SHA256SUMS.txt"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "${TAG} release already exists; refusing to replace assets." >&2
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
+            echo "${TAG} already exists; refusing to move an existing candidate tag." >&2
             exit 1
           fi
-          gh release create "$TAG" "$JAR" "$SUMS" \
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "${TAG} release already exists; refusing to replace candidate assets." >&2
+            exit 1
+          fi
+          git tag "$TAG" "$GITHUB_SHA"
+          git push origin "refs/tags/${TAG}"
+          gh release create "$TAG" \
+            "release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar" \
+            "release-assets/SHA256SUMS.txt" \
             --target "$GITHUB_SHA" \
             --title "PlexonSpawners ${PLUGIN_VERSION}" \
+            --prerelease \
             --notes-file RELEASE_NOTES.md

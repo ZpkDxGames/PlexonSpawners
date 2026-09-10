@@ -3,16 +3,14 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: Core-native spawner handling and physical Spawner Essence with standalone compatibility.
+description: Persistent premium managed spawners, tier upgrades, Essence recovery and first-party spawn provenance.
 prefix: PlexonSpawners
 
 softdepend:
   - PlexonCore
 
 # PlexonSpawners intentionally loads before known spawner managers so its
-# HIGHEST-priority break listener can claim managed spawner breaks first.
-# WildStacker respects cancelled BlockBreakEvents, while PlexonSpawners uses a
-# stack-safe compatibility bridge to reduce its stack count by one.
+# HIGHEST-priority break listener can claim accepted managed breaks first.
 loadbefore:
   - WildStacker
 
@@ -25,13 +23,14 @@ commands:
 
 permissions:
   plexonspawners.admin:
-    description: Access to PlexonSpawners administration commands.
+    description: Access to PlexonSpawners administration commands and managed-spawner administration.
     default: op
     children:
       plexonspawners.admin.gui: true
       plexonspawners.admin.reload: true
       plexonspawners.admin.give: true
       plexonspawners.admin.essence: true
+      plexonspawners.bypass.access: true
   plexonspawners.admin.gui:
     description: Open and use the in-game admin editor.
     default: op
@@ -46,4 +45,7 @@ permissions:
     default: op
   plexonspawners.bypass.silk:
     description: Bypass the configured Silk Touch level only when breaking.allow-silk-bypass-permission is enabled.
+    default: false
+  plexonspawners.bypass.access:
+    description: Bypass managed-spawner ownership and access restrictions.
     default: false
