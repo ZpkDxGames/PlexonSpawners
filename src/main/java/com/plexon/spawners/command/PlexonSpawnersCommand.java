@@ -115,6 +115,14 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         sendDiagnostic(sender, "Core plugin/API", core.pluginVersion() + " / " + core.apiVersion());
         sendDiagnostic(sender, "Supported Core", CoreBridge.SUPPORTED_API_RANGE);
         sendDiagnostic(sender, "Module", core.registrationState());
+        sendDiagnostic(sender, "Managed runtime", enabled(plugin.tuning().enabled()));
+        sendDiagnostic(sender, "Managed spawners", plugin.managedRegistry() == null
+            ? "registry unavailable"
+            : Integer.toString(plugin.managedRegistry().size()));
+        sendDiagnostic(sender, "Tier ceiling", Integer.toString(plugin.tuning().maxTier()));
+        sendDiagnostic(sender, "Persistence cadence", plugin.tuning().persistenceIntervalTicks() + " ticks");
+        sendDiagnostic(sender, "Provenance radius", plugin.tuning().provenanceSearchRadius() + " blocks");
+        sendDiagnostic(sender, "Chunk safety cap", Integer.toString(plugin.tuning().maxManagedPerChunk()));
         sendDiagnostic(sender, "Breaking", enabled(plugin.settings().breakingEnabled()));
         sendDiagnostic(sender, "Take ownership", Boolean.toString(plugin.settings().takeOwnership()));
         sendDiagnostic(sender, "Silk required", Integer.toString(plugin.settings().requiredSilkTouchLevel()));
@@ -154,6 +162,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             + " success / " + performance.vanillaSpawnerPlacementRejects() + " vanilla rejects");
         sendDiagnostic(sender, "Public API", plugin.api() == null ? "not registered" : "registered");
         sendDiagnostic(sender, "Public events", "recovered / essence / placed ready");
+        sendDiagnostic(sender, "Provenance API", plugin.api() == null ? "unavailable" : "ready");
         if (core.detail() != null && !core.detail().isBlank()) {
             sendDiagnostic(sender, "Core detail", core.detail());
         }
@@ -177,7 +186,9 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             return true;
         }
         if (args.length < 3) {
-            sender.sendMessage(messages.parse("<gray>Usage:</gray> <white>/pspawners give [player] [mob] [amount]</white>"));
+            sender.sendMessage(messages.parse(
+                "<gray>Usage:</gray> <white>/pspawners give [player] [mob] [amount] [tier]</white>"
+            ));
             return true;
         }
         final Player target = Bukkit.getPlayerExact(args[1]);
@@ -195,13 +206,26 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             messages.send(sender, "invalid-number", Map.of("value", args[3]));
             return true;
         }
+        final Integer tier = args.length >= 5 ? positiveInt(args[4]) : 1;
+        if (tier == null || tier > plugin.tuning().maxTier()) {
+            sender.sendMessage(messages.parse(
+                "<gray>Tier must be between</gray> <white>1</white> <gray>and</gray> <white>"
+                    + plugin.tuning().maxTier() + "</white><gray>.</gray>"
+            ));
+            return true;
+        }
 
-        giveInStacks(target, type, amount);
+        giveInStacks(target, type, amount, tier);
         messages.send(sender, "gave-spawner", Map.of(
             "amount", Integer.toString(amount),
             "mob", SpawnerItemService.pretty(type),
             "player", target.getName()
         ));
+        if (tier > 1) {
+            sender.sendMessage(messages.parse(
+                "<gray>Issued managed spawner tier:</gray> <white>" + tier + "</white>"
+            ));
+        }
         return true;
     }
 
@@ -245,7 +269,10 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
                 return true;
             }
             giveEssence(target, amount);
-            messages.send(sender, "gave-essence", Map.of("amount", Integer.toString(amount), "player", target.getName()));
+            messages.send(sender, "gave-essence", Map.of(
+                "amount", Integer.toString(amount),
+                "player", target.getName()
+            ));
             return true;
         }
 
@@ -253,11 +280,11 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         return true;
     }
 
-    private void giveInStacks(final Player target, final EntityType type, final int total) {
+    private void giveInStacks(final Player target, final EntityType type, final int total, final int tier) {
         int remaining = total;
         while (remaining > 0) {
             final int amount = Math.min(64, remaining);
-            final ItemStack stack = spawnerItemService.createSpawner(type, amount);
+            final ItemStack stack = spawnerItemService.createSpawner(type, amount, tier);
             target.getInventory().addItem(stack).values().forEach(leftover ->
                 target.getWorld().dropItemNaturally(target.getLocation(), leftover)
             );
@@ -285,7 +312,7 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         sender.sendMessage(messages.parse("<gray>/pspawners admin</gray> <dark_gray>-</dark_gray> <white>open admin editor</white>"));
         sender.sendMessage(messages.parse("<gray>/pspawners info</gray> <dark_gray>-</dark_gray> <white>runtime diagnostics</white>"));
         sender.sendMessage(messages.parse("<gray>/pspawners diagnostics</gray> <dark_gray>-</dark_gray> <white>Core/integration diagnostics</white>"));
-        sender.sendMessage(messages.parse("<gray>/pspawners give [player] [mob] [amount]</gray>"));
+        sender.sendMessage(messages.parse("<gray>/pspawners give [player] [mob] [amount] [tier]</gray>"));
         sender.sendMessage(messages.parse("<gray>/pspawners essence set</gray> <dark_gray>-</dark_gray> <white>copy held item</white>"));
         sender.sendMessage(messages.parse("<gray>/pspawners essence give [player] [amount]</gray>"));
         sender.sendMessage(messages.parse("<gray>/pspawners reload</gray>"));
@@ -310,6 +337,13 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             }
             if (args.length == 3) {
                 return filter(SPAWNABLE_ENTITY_NAMES, args[2]);
+            }
+            if (args.length == 5) {
+                final List<String> tiers = new ArrayList<>();
+                for (int tier = 1; tier <= plugin.tuning().maxTier(); tier++) {
+                    tiers.add(Integer.toString(tier));
+                }
+                return filter(tiers, args[4]);
             }
         }
         if (args[0].equalsIgnoreCase("essence")) {
