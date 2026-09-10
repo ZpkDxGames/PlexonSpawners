@@ -87,10 +87,7 @@ jobs:
           if-no-files-found: error
 
   release-candidate:
-    if: >-
-      github.event_name == 'push' &&
-      startsWith(github.ref, 'refs/heads/release/') &&
-      contains(env.PLUGIN_VERSION, '-rc.')
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/3.0.0-rc.1'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
