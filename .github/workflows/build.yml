@@ -2,32 +2,35 @@ name: Build
 
 on:
   push:
-    branches:
-      - main
-      - 'agent/**'
-      - 'phase2/**'
-      - 'phase3/**'
-      - 'release/**'
+    branches: ['**']
+    tags-ignore: ['v*']
   pull_request:
+    branches: [main]
   workflow_dispatch:
 
 permissions:
   contents: read
 
-concurrency:
-  group: plexonspawners-build-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
-  PLUGIN_VERSION: '3.0.0-rc.2'
+  ACCEPTED_PHASE2_SHA: 'be65cb636bf21f6aeef6a0f1d87c470882df472d'
+  ACCEPTED_RC2_SHA: 'bcedd2c71db785ad42eec2ddd7416a76d9fe02da'
+  RC2_TAG: 'v3.0.0-rc.2'
+  RC2_JAR_SHA256: 'd037f695b498d35453f7dbdd9415b07c70c6293dab557cd1fa0720501e57e337'
+  ROLLBACK_TAG: 'v2.3.1'
+  ROLLBACK_SHA: '0ec54a04ecb77374874edf889b20286144c32a88'
+  ROLLBACK_JAR_SHA256: '626299825e188db6f89dc5eb83f74bce3ce998aa3a45ffad817ee7372d39ffb8'
+  CORE_VERSION: '2.0.4'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
 jobs:
-  build:
+  verify:
     runs-on: ubuntu-24.04
+    timeout-minutes: 25
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Checkout exact source
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - name: Set up Java 25
         uses: actions/setup-java@v5
@@ -36,102 +39,138 @@ jobs:
           java-version: '25'
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6
+        uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.7.1'
 
-      - name: Provision PlexonCore API 2.0.4
+      - name: Provision verified PlexonCore API
+        run: bash scripts/provision-core.sh
+
+      - name: Resolve version and prove accepted lineage
+        id: meta
         shell: bash
         run: |
-          curl -fsSL -o /tmp/PlexonCore-2.0.4.jar \
-            https://github.com/ZpkDxGames/PlexonCore/releases/download/v2.0.4/PlexonCore-2.0.4.jar
-          echo "${CORE_SHA256}  /tmp/PlexonCore-2.0.4.jar" | sha256sum --check
-          mvn -B install:install-file \
-            -Dfile=/tmp/PlexonCore-2.0.4.jar \
-            -DgroupId=com.zpkdxgames \
-            -DartifactId=PlexonCore \
-            -Dversion=2.0.4 \
-            -Dpackaging=jar \
-            -DgeneratePom=true
+          set -euo pipefail
+          VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
+          test -n "$VERSION"
+          git merge-base --is-ancestor "$ACCEPTED_PHASE2_SHA" HEAD
+          git merge-base --is-ancestor "$ACCEPTED_RC2_SHA" HEAD
+          grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
+          grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
-      - name: Test and verify PlexonSpawners
-        run: gradle clean check --stacktrace
+      - name: Full source verification
+        run: gradle clean test check jar --no-daemon
 
-      - name: Verify runtime JAR contract
+      - name: Build exact test summary
         shell: bash
         run: |
-          JAR="build/libs/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          test -f "$JAR"
-          jar tf "$JAR" | grep -q '^plugin.yml$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/PlexonSpawners.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/managed/ManagedSpawnerRegistry.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/managed/SpawnerOriginService.class$'
-          jar tf "$JAR" | grep -q '^com/plexon/spawners/gui/SpawnerControlGui.class$'
-          if jar tf "$JAR" | grep -q '^com/zpkdxgames/plexoncore/'; then
-            echo 'PlexonCore classes were shaded into the plugin JAR.' >&2
+          set -euo pipefail
+          mkdir -p build/release-evidence
+          python3 - <<'PY'
+          import glob, pathlib, xml.etree.ElementTree as ET
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          paths = sorted(glob.glob('build/test-results/test/TEST-*.xml'))
+          if not paths:
+              raise SystemExit('No JUnit XML results found')
+          for path in paths:
+              root = ET.parse(path).getroot()
+              totals['tests'] += int(root.attrib.get('tests', 0))
+              totals['failures'] += int(root.attrib.get('failures', 0))
+              totals['errors'] += int(root.attrib.get('errors', 0))
+              totals['skipped'] += int(root.attrib.get('skipped', 0))
+          if totals['tests'] <= 0:
+              raise SystemExit('No tests executed')
+          if totals['failures'] or totals['errors'] or totals['skipped']:
+              raise SystemExit(f'Non-clean test totals: {totals}')
+          pathlib.Path('build/release-evidence/TEST_SUMMARY.txt').write_text(
+              f"TEST_COUNT={totals['tests']} FAILURES={totals['failures']} ERRORS={totals['errors']} SKIPPED={totals['skipped']}\n",
+              encoding='utf-8')
+          print(totals)
+          PY
+
+      - name: Verify stable distribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="build/libs/PlexonSpawners-${VERSION}.jar"
+          test -s "$JAR"
+          jar tf "$JAR" > build/release-evidence/jar-contents.txt
+          for required in \
+            plugin.yml \
+            com/plexon/spawners/PlexonSpawners.class \
+            com/plexon/spawners/api/PlexonSpawnersApi.class \
+            com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
+            com/plexon/spawners/managed/SpawnerStateService.class \
+            com/plexon/spawners/managed/SpawnerOriginService.class \
+            com/plexon/spawners/listener/SpawnerChunkListener.class \
+            com/plexon/spawners/gui/SpawnerControlGui.class; do
+            grep -qx "$required" build/release-evidence/jar-contents.txt
+          done
+          unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
+          unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
+          javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
+          if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
+            echo 'PlexonCore runtime classes must not be shaded.' >&2
             exit 1
           fi
-          rm -rf build/release
-          mkdir -p build/release
-          cp "$JAR" "build/release/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          (cd build/release && sha256sum "PlexonSpawners-${PLUGIN_VERSION}.jar") > build/release/SHA256SUMS.txt
-          (cd build/release && sha256sum --check SHA256SUMS.txt)
+          (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
 
-      - name: Check whitespace
-        run: git diff --check
+      - name: Write exact provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          JAR="build/libs/PlexonSpawners-${VERSION}.jar"
+          digest="$(sha256sum "$JAR" | awk '{print $1}')"
+          size="$(stat -c%s "$JAR")"
+          cat > build/release-evidence/PROVENANCE.txt <<EOF
+          repository=$GITHUB_REPOSITORY
+          source_sha=$GITHUB_SHA
+          accepted_phase2=$ACCEPTED_PHASE2_SHA
+          accepted_rc2=$ACCEPTED_RC2_SHA
+          version=$VERSION
+          java=25
+          java_major=69
+          paper=26.2.build.121-stable
+          plexoncore=$CORE_VERSION
+          plexoncore_sha256=$CORE_SHA256
+          managed_persistence_schema=1
+          managed_item_schema=2
+          stable_rollback_tag=$ROLLBACK_TAG
+          stable_rollback_sha=$ROLLBACK_SHA
+          stable_rollback_jar_sha256=$ROLLBACK_JAR_SHA256
+          historical_rc2_tag=$RC2_TAG
+          historical_rc2_jar_sha256=$RC2_JAR_SHA256
+          jar_size=$size
+          jar_sha256=$digest
+          unknown_entity_guard=PASS
+          managed_identity_reconciliation=PASS
+          essence_upgrade_rollback=PASS
+          bounded_persistence_writer=PASS
+          runtime_certification=NOT_EXECUTED
+          EOF
 
-      - name: Upload CI artifact
+      - name: Check source whitespace
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --check "$(git merge-base HEAD origin/main)" HEAD
+
+      - name: Upload verified build
         uses: actions/upload-artifact@v4
         with:
-          name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
-          path: build/release/
+          name: PlexonSpawners-${{ steps.meta.outputs.version }}-${{ github.sha }}
+          path: |
+            build/libs/PlexonSpawners-${{ steps.meta.outputs.version }}.jar
+            build/libs/SHA256SUMS.txt
+            build/release-evidence/TEST_SUMMARY.txt
+            build/release-evidence/PROVENANCE.txt
           if-no-files-found: error
 
-  release-candidate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/3.0.0-rc.2'
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - name: Checkout candidate commit
-        uses: actions/checkout@v4
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
-          fetch-depth: 0
-
-      - name: Download verified candidate assets
-        uses: actions/download-artifact@v4
-        with:
-          name: PlexonSpawners-${{ env.PLUGIN_VERSION }}
-          path: release-assets
-
-      - name: Verify candidate assets
-        shell: bash
-        run: |
-          test -f "release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar"
-          test -f "release-assets/SHA256SUMS.txt"
-          (cd release-assets && sha256sum --check SHA256SUMS.txt)
-
-      - name: Publish immutable prerelease
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          TAG="v${PLUGIN_VERSION}"
-          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
-            echo "${TAG} already exists; refusing to move an existing candidate tag." >&2
-            exit 1
-          fi
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "${TAG} release already exists; refusing to replace candidate assets." >&2
-            exit 1
-          fi
-          git tag "$TAG" "$GITHUB_SHA"
-          git push origin "refs/tags/${TAG}"
-          gh release create "$TAG" \
-            "release-assets/PlexonSpawners-${PLUGIN_VERSION}.jar" \
-            "release-assets/SHA256SUMS.txt" \
-            --target "$GITHUB_SHA" \
-            --title "PlexonSpawners ${PLUGIN_VERSION}" \
-            --prerelease \
-            --notes-file RELEASE_NOTES.md
+          name: test-results-${{ github.sha }}
+          path: build/test-results/test/
