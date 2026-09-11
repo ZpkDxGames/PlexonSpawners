@@ -75,9 +75,13 @@ public final class SpawnerItemService {
     }
 
     public ItemStack createSpawner(final EntityType entityType, final int amount, final int tier) {
+        final NamespacedKey entityKey = requireManagedEntityKey(entityType);
         final int safeTier = Math.max(1, tier);
         final TemplateKey key = new TemplateKey(entityType, safeTier);
-        final ItemStack template = templateCache.computeIfAbsent(key, ignored -> createTemplate(entityType, safeTier));
+        final ItemStack template = templateCache.computeIfAbsent(
+            key,
+            ignored -> createTemplate(entityType, entityKey, safeTier)
+        );
         final ItemStack item = template.clone();
         item.setAmount(Math.max(1, Math.min(item.getMaxStackSize(), amount)));
         return item;
@@ -142,7 +146,7 @@ public final class SpawnerItemService {
         return pdc;
     }
 
-    private ItemStack createTemplate(final EntityType entityType, final int tier) {
+    private ItemStack createTemplate(final EntityType entityType, final NamespacedKey entityKey, final int tier) {
         final ItemStack item = new ItemStack(Material.SPAWNER, 1);
         final ItemMeta rawMeta = item.getItemMeta();
         if (!(rawMeta instanceof BlockStateMeta meta)) {
@@ -157,7 +161,7 @@ public final class SpawnerItemService {
 
         final PersistentDataContainer pdc = meta.getPersistentDataContainer();
         pdc.set(managedKey, PersistentDataType.INTEGER, 1);
-        pdc.set(typeKey, PersistentDataType.STRING, entityType.getKey().asString());
+        pdc.set(typeKey, PersistentDataType.STRING, entityKey.asString());
         pdc.set(schemaKey, PersistentDataType.INTEGER, CURRENT_SCHEMA);
         pdc.set(tierKey, PersistentDataType.INTEGER, tier);
 
@@ -182,13 +186,36 @@ public final class SpawnerItemService {
         return marker != null && marker == 1;
     }
 
-    private static Map<String, EntityType> buildEntityKeyLookup() {
+    static Map<String, EntityType> buildEntityKeyLookup() {
         final Map<String, EntityType> lookup = new HashMap<>();
         for (final EntityType type : EntityType.values()) {
-            lookup.put(type.getKey().asString().toLowerCase(Locale.ROOT), type);
+            final NamespacedKey entityKey = entityKeyOrNull(type);
+            if (entityKey == null) {
+                continue;
+            }
+            lookup.put(entityKey.asString().toLowerCase(Locale.ROOT), type);
             lookup.put(type.name().toLowerCase(Locale.ROOT), type);
         }
         return Map.copyOf(lookup);
+    }
+
+    static NamespacedKey requireManagedEntityKey(final EntityType type) {
+        final NamespacedKey key = entityKeyOrNull(type);
+        if (key == null) {
+            throw new IllegalArgumentException("Managed spawners require a keyed EntityType; got " + type);
+        }
+        return key;
+    }
+
+    private static NamespacedKey entityKeyOrNull(final EntityType type) {
+        if (type == null || type == EntityType.UNKNOWN) {
+            return null;
+        }
+        try {
+            return type.getKey();
+        } catch (final IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private static Map<EntityType, String> buildDisplayNames() {
