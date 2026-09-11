@@ -105,6 +105,13 @@ public final class SpawnerBreakListener implements Listener {
         }
 
         EntityType entityType = managed == null ? spawner.getSpawnedType() : managed.type();
+        if (entityType == EntityType.UNKNOWN) {
+            event.setCancelled(true);
+            player.sendMessage(miniMessage.deserialize(
+                "<!italic><#FF6B6B>This spawner has an invalid UNKNOWN entity type; the break was cancelled to preserve it.</#FF6B6B>"
+            ));
+            return;
+        }
         if (entityType == null) {
             entityType = EntityType.PIG;
         }
