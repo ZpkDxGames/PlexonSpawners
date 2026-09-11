@@ -60,6 +60,27 @@ public final class SpawnerChunkListener implements Listener {
             registry.remove(record.id());
             return;
         }
+
+        if (!stateService.isManaged(spawner)) {
+            registry.remove(record.id());
+            return;
+        }
+
+        final ManagedSpawner physical = stateService.recover(spawner);
+        if (!samePhysicalIdentity(record, physical)) {
+            registry.remove(record.id());
+            return;
+        }
+
         stateService.apply(spawner, record, tuning.tier(record.tier()));
+    }
+
+    static boolean samePhysicalIdentity(final ManagedSpawner expected, final ManagedSpawner physical) {
+        return physical != null
+            && expected.id().equals(physical.id())
+            && expected.worldId().equals(physical.worldId())
+            && expected.x() == physical.x()
+            && expected.y() == physical.y()
+            && expected.z() == physical.z();
     }
 }
