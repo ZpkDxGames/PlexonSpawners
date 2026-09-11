@@ -23,6 +23,9 @@ public record ManagedSpawner(
         Objects.requireNonNull(type, "type");
         Objects.requireNonNull(ownerId, "ownerId");
         Objects.requireNonNull(access, "access");
+        if (type == EntityType.UNKNOWN) {
+            throw new IllegalArgumentException("managed spawner type must not be EntityType.UNKNOWN");
+        }
         if (tier < 1) {
             throw new IllegalArgumentException("tier must be >= 1");
         }
