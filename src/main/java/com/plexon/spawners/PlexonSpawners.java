@@ -6,18 +6,26 @@ import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
+import com.plexon.spawners.gui.SpawnerControlGui;
 import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.integration.core.CoreBridgeFactory;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.listener.SpawnerBreakListener;
+import com.plexon.spawners.listener.SpawnerChunkListener;
 import com.plexon.spawners.listener.SpawnerPlaceListener;
+import com.plexon.spawners.listener.SpawnerProvenanceListener;
+import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.SpawnerOriginService;
+import com.plexon.spawners.managed.SpawnerStateService;
+import com.plexon.spawners.managed.SpawnerTuning;
 import com.plexon.spawners.message.MessageService;
 import java.util.List;
 import java.util.logging.Level;
 import org.bukkit.command.PluginCommand;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
+import org.bukkit.scheduler.BukkitTask;
 
 public final class PlexonSpawners extends JavaPlugin {
     private static final String LEGACY_SPAWNER_NAME =
@@ -42,8 +50,21 @@ public final class PlexonSpawners extends JavaPlugin {
         "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
         "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
     );
+    private static final List<String> PHASE2_SPAWNER_LORE = List.of(
+        "",
+        "<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>",
+        "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>",
+        "",
+        "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
+        "<!italic><#4B5563>› <#8B95A7>Tier</#8B95A7> <#72F1B8>%tier%</#72F1B8>",
+        "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>",
+        "",
+        "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
+        "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
+    );
 
     private final PluginSettings settings = new PluginSettings();
+    private final SpawnerTuning tuning = new SpawnerTuning();
     private final PerformanceCounters performanceCounters = new PerformanceCounters();
 
     private MessageService messages;
@@ -52,6 +73,10 @@ public final class PlexonSpawners extends JavaPlugin {
     private PlexonSpawnersApi api;
     private CoreBridge coreBridge;
     private WildStackerCompat wildStackerCompat;
+    private ManagedSpawnerRegistry managedRegistry;
+    private SpawnerStateService spawnerStateService;
+    private SpawnerOriginService spawnerOriginService;
+    private BukkitTask persistenceTask;
 
     @Override
     public void onEnable() {
@@ -64,13 +89,30 @@ public final class PlexonSpawners extends JavaPlugin {
 
             messages = new MessageService(this);
             settings.reload(getConfig());
+            tuning.reload(getConfig());
             reportConfigurationWarnings();
             essenceService = new EssenceService(this);
             spawnerItemService = new SpawnerItemService(this);
-            api = new PlexonSpawnersApi(essenceService, spawnerItemService);
+            spawnerStateService = new SpawnerStateService(this);
+            spawnerOriginService = new SpawnerOriginService(this);
+            managedRegistry = new ManagedSpawnerRegistry(this);
+            managedRegistry.load();
+
+            api = new PlexonSpawnersApi(
+                essenceService,
+                spawnerItemService,
+                managedRegistry,
+                spawnerOriginService
+            );
             getServer().getServicesManager().register(PlexonSpawnersApi.class, api, this, ServicePriority.Normal);
 
             final AdminGui adminGui = new AdminGui(this, essenceService, messages);
+            final SpawnerControlGui controlGui = new SpawnerControlGui(
+                managedRegistry,
+                spawnerStateService,
+                tuning,
+                essenceService
+            );
             final PlexonSpawnersCommand command = new PlexonSpawnersCommand(
                 this,
                 adminGui,
@@ -87,7 +129,14 @@ public final class PlexonSpawners extends JavaPlugin {
             pluginCommand.setExecutor(command);
             pluginCommand.setTabCompleter(command);
 
+            final SpawnerChunkListener chunkListener = new SpawnerChunkListener(
+                managedRegistry,
+                spawnerStateService,
+                tuning
+            );
             getServer().getPluginManager().registerEvents(adminGui, this);
+            getServer().getPluginManager().registerEvents(controlGui, this);
+            getServer().getPluginManager().registerEvents(chunkListener, this);
             getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
                 new SpawnerBreakListener(
@@ -96,18 +145,36 @@ public final class PlexonSpawners extends JavaPlugin {
                     spawnerItemService,
                     messages,
                     wildStackerCompat,
+                    performanceCounters,
+                    managedRegistry,
+                    spawnerStateService
+                ),
+                this
+            );
+            getServer().getPluginManager().registerEvents(
+                new SpawnerPlaceListener(
+                    spawnerItemService,
+                    spawnerStateService,
+                    managedRegistry,
+                    tuning,
                     performanceCounters
                 ),
                 this
             );
             getServer().getPluginManager().registerEvents(
-                new SpawnerPlaceListener(spawnerItemService, performanceCounters),
+                new SpawnerProvenanceListener(managedRegistry, tuning, spawnerOriginService),
                 this
             );
 
-            coreBridge.markReady("Spawner engine, cached item runtime, public API/events and diagnostics ready");
+            chunkListener.reconcileAlreadyLoaded();
+            schedulePersistenceCoordinator();
+
+            coreBridge.markReady(
+                "Managed spawner registry, tier engine, provenance, cached item runtime, public API/events and diagnostics ready"
+            );
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
-                + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode.");
+                + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode with "
+                + managedRegistry.size() + " managed spawners.");
         } catch (RuntimeException | LinkageError exception) {
             coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
             getLogger().log(Level.SEVERE, "PlexonSpawners failed to initialize safely.", exception);
@@ -117,6 +184,13 @@ public final class PlexonSpawners extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        if (persistenceTask != null) {
+            persistenceTask.cancel();
+            persistenceTask = null;
+        }
+        if (managedRegistry != null) {
+            managedRegistry.close();
+        }
         getServer().getServicesManager().unregisterAll(this);
         if (coreBridge != null) {
             coreBridge.unregister();
@@ -126,6 +200,7 @@ public final class PlexonSpawners extends JavaPlugin {
     public void reloadPlugin() {
         reloadConfig();
         settings.reload(getConfig());
+        tuning.reload(getConfig());
         if (messages != null) {
             messages.reload();
         }
@@ -138,11 +213,16 @@ public final class PlexonSpawners extends JavaPlugin {
         if (wildStackerCompat != null) {
             wildStackerCompat.refresh();
         }
+        schedulePersistenceCoordinator();
         reportConfigurationWarnings();
     }
 
     public PluginSettings settings() {
         return settings;
+    }
+
+    public SpawnerTuning tuning() {
+        return tuning;
     }
 
     public PlexonSpawnersApi api() {
@@ -165,8 +245,28 @@ public final class PlexonSpawners extends JavaPlugin {
         return spawnerItemService;
     }
 
+    public ManagedSpawnerRegistry managedRegistry() {
+        return managedRegistry;
+    }
+
     public PerformanceCounters performanceCounters() {
         return performanceCounters;
+    }
+
+    private void schedulePersistenceCoordinator() {
+        if (managedRegistry == null) {
+            return;
+        }
+        if (persistenceTask != null) {
+            persistenceTask.cancel();
+        }
+        final long interval = tuning.persistenceIntervalTicks();
+        persistenceTask = getServer().getScheduler().runTaskTimer(
+            this,
+            managedRegistry::flushAsync,
+            interval,
+            interval
+        );
     }
 
     private void reportConfigurationWarnings() {
@@ -217,9 +317,19 @@ public final class PlexonSpawners extends JavaPlugin {
             changed = true;
         }
 
+        if (configVersion < 5) {
+            final String currentName = getConfig().getString("spawner-item.name", "");
+            final List<String> currentLore = getConfig().getStringList("spawner-item.lore");
+            if (PLEXONCRAFT_SPAWNER_NAME.equals(currentName) && PLEXONCRAFT_SPAWNER_LORE.equals(currentLore)) {
+                getConfig().set("spawner-item.lore", PHASE2_SPAWNER_LORE);
+            }
+            getConfig().set("config-version", 5);
+            changed = true;
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 2.3 compatibility.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 3.0 compatibility.");
         }
     }
 }

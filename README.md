@@ -1,59 +1,85 @@
 # PlexonSpawners
 
-Core-native spawner handling and physical Spawner Essence for the Plexon plugin family, with a complete standalone fallback when PlexonCore is absent.
+PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. The 3.0 line adds persistent managed spawners, ownership/access, bounded tiers, Essence upgrades and first-party spawn provenance while preserving the 2.x Silk/Essence and WildStacker safety contract.
 
-## Version 2.3.0
+> Current Phase 2 branch version: `3.0.0-rc.1`. This is a prerelease candidate until PlexonCraft runtime certification passes.
 
-PlexonSpawners 2.3.0 is the stable performance/reliability line built on the 2.2.0 Core/public-event contract. The release keeps the plugin deliberately small, database-free, and proportional to real spawner interactions only.
+## 3.0 product model
 
-- Keeps the shared `BlockBreakEvent` path at an immediate material/settings reject for ordinary mining.
-- Resolves and caches optional WildStacker compatibility at lifecycle boundaries instead of rediscovering its API on every accepted spawner break.
-- Preserves fail-closed stacked-spawner behavior and exact one-unit unstacking.
-- Caches per-EntityType managed spawner item templates, including exact BlockStateMeta and PDC identity.
-- Resolves managed `spawner_type` PDC values through an O(1) lookup instead of scanning `EntityType.values()` on placement.
-- Precomputes EntityType display names and runtime Essence rules.
-- Compiles gameplay settings into an immutable runtime snapshot and resolves configured loaded-world UUIDs for cheap world checks.
-- Makes public-outcome transaction UUIDs lazy and reduces repeated `Location`/permission/item allocations on accepted breaks.
-- Caches Spawner Essence maximum stack size and performs bounded minimum-stack bulk inventory delivery.
-- Warns about dangerous high physical ground-drop configurations without silently reducing the configured logical Essence award.
-- Expands `/pspawners diagnostics` with integration/cache/runtime state.
+A Plexon-managed physical spawner now has a stable identity and durable state:
+
+- spawner UUID;
+- world/block coordinates;
+- creature type;
+- owner UUID;
+- tier;
+- access policy;
+- placement timestamp;
+- lifetime attributed spawns.
+
+The authoritative index is persisted to `plugins/PlexonSpawners/managed-spawners.db`. The physical `CreatureSpawner` also receives recovery PDC. Unsupported database schema is rejected instead of silently resetting data.
+
+## Ownership and access
+
+New managed spawners belong to the player who places them.
+
+- `OWNER_ONLY`: owner/admin can inspect, manage and break.
+- `PUBLIC_USE`: everyone may inspect/use; only owner/admin may manage or break.
+- `PUBLIC`: everyone may inspect/use/break; only owner/admin may change tier/access.
+
+Right-click a managed spawner to open its control GUI. The GUI shows creature, owner, tier tuning, lifetime spawns, access policy and next-tier upgrade cost.
+
+## Tiers and upgrades
+
+Five conservative tiers ship by default. A tier controls:
+
+- minimum/maximum spawn delay;
+- spawn count;
+- nearby-entity cap;
+- required player range;
+- spawn range.
+
+Upgrades consume the exact PDC-backed Spawner Essence item. The transaction validates access and inventory first, reserves Essence, applies registry + physical state, and rolls back/refunds if physical application fails.
+
+## Spawner provenance
+
+For accepted Bukkit `SPAWNER` spawns, PlexonSpawners performs a bounded chunk-index lookup for a matching managed source, marks the entity with PDC provenance and records the stable source-spawner UUID.
+
+Downstream Plexon plugins should consume `PlexonSpawnersApi` instead of using lore checks, entity-history scans or per-hit database queries.
+
+## Persistence and performance
+
+The 3.0 runtime deliberately avoids per-spawner scheduling:
+
+- one in-memory block index;
+- one chunk index;
+- one shared persistence coordinator;
+- one single-thread snapshot writer;
+- coalesced dirty revisions;
+- atomic file replacement;
+- chunk-load reconciliation only for records already indexed in that chunk.
+
+There are no global chunk/entity scans and no synchronous file writes in placement, break or spawn listeners.
+
+## Recovery behavior
+
+The existing recovery model remains:
+
+- qualifying Silk Touch can recover the typed managed spawner;
+- failed qualification can roll Spawner Essence;
+- tier is preserved when a 3.x managed spawner is recovered;
+- 2.x schema-1 managed spawner items remain readable and map to tier 1;
+- WildStacker compatibility remains fail closed and removes only one unit when its provider safely accepts the operation.
 
 ## Core modes
 
-With a compatible PlexonCore 1.x runtime installed, `/plexon modules` should report `PlexonSpawners — READY` and `/pspawners diagnostics` should report `Mode: CORE`.
-
-Without Core, the complete spawner feature set remains operational in `STANDALONE` mode. No database, polling, or per-break Core lookup is introduced.
-
-## Gameplay contract
-
-Qualifying Silk Touch breaks can drop a typed PlexonCraft-styled spawner item. Failed qualification can roll a configurable chance to produce physical **Spawner Essence**. Global Essence chance and amount can be overridden independently for individual mob types.
-
-Spawner Essence remains a configurable exact ItemStack secured with the `spawner_essence` PDC identity. Managed spawners retain `managed_spawner` and `spawner_type` PDC identity and restore their entity type when placed. New 2.3.0 managed items may also carry an internal `spawner_schema` marker; existing 2.x managed items without it remain readable.
-
-## WildStacker compatibility
-
-With `breaking.take-ownership: true`, PlexonSpawners claims the managed break. If WildStacker owns a stack, exactly one unit is unstacked. `CANCELLED`, degraded, disabled, or otherwise unavailable compatibility outcomes fail closed: PlexonSpawners does not force-delete the stack or emit a reward event.
-
-WildStacker discovery/class resolution occurs at plugin lifecycle boundaries. Gameplay calls reuse cached accessors rather than doing plugin/class/method discovery for every break.
-
-## Silk Touch qualification
-
-`breaking.required-silk-touch-level` remains authoritative for everyone, including OP/admin players. The optional bypass works only when both conditions are true:
-
-- `breaking.allow-silk-bypass-permission: true`
-- the player has `plexonspawners.bypass.silk`
-
-The bypass permission itself is only queried when the configured Silk level is actually not met.
-
-## Admin GUI
-
-Open the editor with `/pspawners admin`. Existing Spawner Rules, Spawner Essence, and Mob Values administration remain available.
+PlexonSpawners supports the current PlexonCore 2.0.4 baseline and Core API range `>=1.0 <3.0`. When Core is unavailable/incompatible, the established standalone bridge remains available; `/pspawners diagnostics` exposes the active mode and module state.
 
 ## Requirements
 
 - Paper 26.2
 - Java 25
-- PlexonCore 1.0.0 / API 1.x optional at runtime
+- PlexonCore 2.0.4 recommended/current ecosystem baseline
 - WildStacker optional
 
 ## Commands
@@ -74,37 +100,36 @@ Open the editor with `/pspawners admin`. Existing Spawner Rules, Spawner Essence
 - `plexonspawners.admin.give`
 - `plexonspawners.admin.essence`
 - `plexonspawners.bypass.silk`
+- `plexonspawners.bypass.access`
 
 ## Public API and events
 
-`com.plexon.spawners.api.PlexonSpawnersApi` remains registered through Bukkit `ServicesManager`.
+`com.plexon.spawners.api.PlexonSpawnersApi` is registered through Bukkit `ServicesManager`.
 
-The stable synchronous post-success events remain:
+The 2.x synchronous events remain compatible:
 
-- `com.plexon.spawners.event.PlexonSpawnerRecoveredEvent`
-- `com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent`
-- `com.plexon.spawners.event.PlexonSpawnerPlacedEvent`
+- `PlexonSpawnerRecoveredEvent`
+- `PlexonSpawnerEssenceAwardedEvent`
+- `PlexonSpawnerPlacedEvent`
 
-Events fire synchronously only after their corresponding successful logical outcome. See `docs/API.md`.
+The 3.0 API additionally exposes managed-spawner lookup/snapshots, tier-aware item creation and spawn-origin lookup. See `docs/API.md`.
 
-## Configuration and upgrades
+## Migration from 2.3.1
 
-2.3.0 keeps the conservative migration model: existing plugin data, customized messages, exact Essence item, per-mob values, world rules, Silk requirement, and customized spawner presentation are preserved. No database migration is required.
-
-After upgrading, run `/pspawners diagnostics`, then perform controlled Silk recovery, failed-Silk Essence, managed placement, and stacked-spawner tests before production rollout.
-
-## Performance validation
-
-A production 2.3.0 rollout should include before/after Spark validation. Ordinary mining should show PlexonSpawners effectively absent from sustained cost; stacked-spawner recovery, Essence bursts, and managed placement should remain tightly bounded. Do not treat synthetic code changes alone as proof of MSPT improvement.
+Read `docs/MIGRATION_3_0.md` before staging the candidate. In summary: back up the old JAR and plugin directory, keep existing config/data, retain existing managed items, and allow 3.0 to create its managed registry only as new physical managed spawners are placed/recovered.
 
 ## Building
 
-CI provisions the official `PlexonCore-1.0.0.jar` into Maven local after verifying its pinned SHA-256, then runs:
+CI verifies the pinned PlexonCore 2.0.4 artifact and runs:
 
 ```bash
-gradle clean check
+gradle clean check --stacktrace
 ```
 
-The resulting installable artifact is `build/libs/PlexonSpawners-2.3.0.jar`.
+The candidate runtime artifact is:
 
-Production publishing is verified and tag-driven. The release pipeline publishes `PlexonSpawners-2.3.0.jar` plus `SHA256SUMS.txt` for `v2.3.0` only after the release source passes the build/distribution checks.
+```text
+build/libs/PlexonSpawners-3.0.0-rc.1.jar
+```
+
+A release-candidate branch may publish `v3.0.0-rc.1` only after CI succeeds. Stable `3.0.0` promotion remains blocked until the documented PlexonCraft runtime gates pass.

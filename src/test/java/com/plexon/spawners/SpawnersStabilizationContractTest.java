@@ -8,52 +8,62 @@ import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
 class SpawnersStabilizationContractTest {
-    private static String source(String relative) throws Exception {
+    private static String source(final String relative) throws Exception {
         return Files.readString(Path.of("src/main/java/com/plexon/spawners").resolve(relative));
     }
 
     @Test
-    void managedSpawnerIdentityIsNamespacedSchemaBoundAndFailClosed() throws Exception {
-        String items = source("item/SpawnerItemService.java");
+    void managedSpawnerItemIdentitySupportsLegacySchemaAndTieredSchema() throws Exception {
+        final String items = source("item/SpawnerItemService.java");
         assertTrue(items.contains("new NamespacedKey(plugin, \"managed_spawner\")"));
         assertTrue(items.contains("new NamespacedKey(plugin, \"spawner_type\")"));
         assertTrue(items.contains("new NamespacedKey(plugin, \"spawner_schema\")"));
-        assertTrue(items.contains("schema != CURRENT_SCHEMA"));
+        assertTrue(items.contains("new NamespacedKey(plugin, \"spawner_tier\")"));
+        assertTrue(items.contains("CURRENT_SCHEMA = 2"));
+        assertTrue(items.contains("MIN_SUPPORTED_SCHEMA = 1"));
+        assertTrue(items.contains("schema < MIN_SUPPORTED_SCHEMA || schema > CURRENT_SCHEMA"));
+        assertTrue(items.contains("schema == null || schema == 1"));
         assertTrue(items.contains("if (!hasManagedMarker(pdc))"));
-        assertTrue(items.contains("key == null || key.isBlank()"));
     }
 
     @Test
-    void placementReadsManagedIdentityOnceAndRejectsUnknownMetadata() throws Exception {
-        String place = source("listener/SpawnerPlaceListener.java");
+    void placementUsesTwoPhaseApplyAndCommit() throws Exception {
+        final String place = source("listener/SpawnerPlaceListener.java");
+        assertTrue(place.contains("EventPriority.HIGHEST"));
+        assertTrue(place.contains("EventPriority.MONITOR"));
+        assertTrue(place.contains("pendingPlacements"));
         assertTrue(place.contains("readSpawnerType(event.getItemInHand())"));
-        assertTrue(place.contains("if (type == null)"));
-        assertTrue(place.contains("vanillaSpawnerPlacementReject"));
-        assertTrue(place.contains("spawner.setSpawnedType(type)"));
+        assertTrue(place.contains("stateService.apply(spawner, record, tuning.tier(tier))"));
+        assertTrue(place.contains("registry.register(pending)"));
     }
 
     @Test
-    void breakPathPreventsVanillaAndManagedDuplicateDrops() throws Exception {
-        String breaking = source("listener/SpawnerBreakListener.java");
+    void breakPathPreventsDuplicateDropsAndPreservesTier() throws Exception {
+        final String breaking = source("listener/SpawnerBreakListener.java");
         assertTrue(breaking.contains("event.setCancelled(true)"));
         assertTrue(breaking.contains("event.setDropItems(false)"));
         assertTrue(breaking.contains("dropSpawnerWhenQualified"));
-        assertTrue(breaking.contains("createSpawner(entityType, 1)"));
+        assertTrue(breaking.contains("createSpawner(entityType, 1, recoveredTier)"));
+        assertTrue(breaking.contains("registry.remove(managed.id())"));
         assertTrue(breaking.contains("WildStackerCompat.Result.SUCCESS"));
     }
 
     @Test
     void inventoryFullEssenceFallsBackToGroundWithoutLoss() throws Exception {
-        String breaking = source("listener/SpawnerBreakListener.java");
+        final String breaking = source("listener/SpawnerBreakListener.java");
         assertTrue(breaking.contains("player.getInventory().addItem(stacks)"));
         assertTrue(breaking.contains("leftovers.values().forEach"));
         assertTrue(breaking.contains("dropItemNaturally(sourceLocation, leftover)"));
     }
 
     @Test
-    void placementAndBreakHotPathsContainNoFileOrDatabaseIo() throws Exception {
-        for (String path : new String[]{"listener/SpawnerBreakListener.java", "listener/SpawnerPlaceListener.java"}) {
-            String listener = source(path);
+    void highFrequencyListenersContainNoFileOrDatabaseIo() throws Exception {
+        for (final String path : new String[]{
+            "listener/SpawnerBreakListener.java",
+            "listener/SpawnerPlaceListener.java",
+            "listener/SpawnerProvenanceListener.java"
+        }) {
+            final String listener = source(path);
             assertFalse(listener.contains("java.sql"));
             assertFalse(listener.contains("Files."));
             assertFalse(listener.contains("FileInputStream"));
@@ -65,8 +75,8 @@ class SpawnersStabilizationContractTest {
 
     @Test
     void reloadInvalidatesManagedItemTemplateCacheAndProviderRefreshIsCentralized() throws Exception {
-        String items = source("item/SpawnerItemService.java");
-        String plugin = source("PlexonSpawners.java");
+        final String items = source("item/SpawnerItemService.java");
+        final String plugin = source("PlexonSpawners.java");
         assertTrue(items.contains("templateCache.clear()"));
         assertTrue(plugin.contains("spawnerItemService.reload()"));
         assertTrue(plugin.contains("wildStackerCompat.refresh()"));
