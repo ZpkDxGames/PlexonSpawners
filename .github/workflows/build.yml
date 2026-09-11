@@ -6,6 +6,7 @@ on:
       - main
       - 'agent/**'
       - 'phase2/**'
+      - 'phase3/**'
       - 'release/**'
   pull_request:
   workflow_dispatch:
@@ -18,7 +19,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  PLUGIN_VERSION: '3.0.0-rc.1'
+  PLUGIN_VERSION: '3.0.0-rc.2'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
 jobs:
@@ -87,7 +88,7 @@ jobs:
           if-no-files-found: error
 
   release-candidate:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/release/3.0.0-rc.1'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/release/3.0.0-rc.2'
     needs: build
     runs-on: ubuntu-24.04
     permissions:
