@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "2.3.1"
+version = "3.0.0-rc.2"
 
 val pluginVersion = version.toString()
 
@@ -30,6 +30,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("io.papermc.paper:paper-api:26.2.build.121-stable")
     testImplementation("com.zpkdxgames:PlexonCore:2.0.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -84,7 +85,10 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",
                 "com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class",
                 "com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class",
-                "com/plexon/spawners/integration/core/CoreBridge.class"
+                "com/plexon/spawners/integration/core/CoreBridge.class",
+                "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
+                "com/plexon/spawners/managed/SpawnerOriginService.class",
+                "com/plexon/spawners/gui/SpawnerControlGui.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
             require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {
                 "PlexonCore runtime classes must not be shaded into PlexonSpawners"

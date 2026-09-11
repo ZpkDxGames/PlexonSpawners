@@ -30,21 +30,24 @@ public final class SpawnerItemService {
         "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>",
         "",
         "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
+        "<!italic><#4B5563>› <#8B95A7>Tier</#8B95A7> <#72F1B8>%tier%</#72F1B8>",
         "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>",
         "",
         "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
         "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
     );
-    private static final int CURRENT_SCHEMA = 1;
+    private static final int CURRENT_SCHEMA = 2;
+    private static final int MIN_SUPPORTED_SCHEMA = 1;
     private static final Map<EntityType, String> DISPLAY_NAMES = buildDisplayNames();
 
     private final JavaPlugin plugin;
     private final NamespacedKey managedKey;
     private final NamespacedKey typeKey;
     private final NamespacedKey schemaKey;
+    private final NamespacedKey tierKey;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
     private final Map<String, EntityType> entityByKey = buildEntityKeyLookup();
-    private final EnumMap<EntityType, ItemStack> templateCache = new EnumMap<>(EntityType.class);
+    private final Map<TemplateKey, ItemStack> templateCache = new HashMap<>();
 
     private String nameTemplate;
     private List<String> loreTemplate;
@@ -54,6 +57,7 @@ public final class SpawnerItemService {
         this.managedKey = new NamespacedKey(plugin, "managed_spawner");
         this.typeKey = new NamespacedKey(plugin, "spawner_type");
         this.schemaKey = new NamespacedKey(plugin, "spawner_schema");
+        this.tierKey = new NamespacedKey(plugin, "spawner_tier");
         reload();
     }
 
@@ -67,7 +71,17 @@ public final class SpawnerItemService {
     }
 
     public ItemStack createSpawner(final EntityType entityType, final int amount) {
-        final ItemStack template = templateCache.computeIfAbsent(entityType, this::createTemplate);
+        return createSpawner(entityType, amount, 1);
+    }
+
+    public ItemStack createSpawner(final EntityType entityType, final int amount, final int tier) {
+        final NamespacedKey entityKey = requireManagedEntityKey(entityType);
+        final int safeTier = Math.max(1, tier);
+        final TemplateKey key = new TemplateKey(entityType, safeTier);
+        final ItemStack template = templateCache.computeIfAbsent(
+            key,
+            ignored -> createTemplate(entityType, entityKey, safeTier)
+        );
         final ItemStack item = template.clone();
         item.setAmount(Math.max(1, Math.min(item.getMaxStackSize(), amount)));
         return item;
@@ -81,25 +95,28 @@ public final class SpawnerItemService {
     }
 
     public EntityType readSpawnerType(final ItemStack item) {
-        if (item == null || item.getType() != Material.SPAWNER || !item.hasItemMeta()) {
+        final PersistentDataContainer pdc = readablePdc(item);
+        if (pdc == null) {
             return null;
         }
-
-        final PersistentDataContainer pdc = item.getItemMeta().getPersistentDataContainer();
-        if (!hasManagedMarker(pdc)) {
-            return null;
-        }
-
-        final Integer schema = pdc.get(schemaKey, PersistentDataType.INTEGER);
-        if (schema != null && schema != CURRENT_SCHEMA) {
-            return null;
-        }
-
         final String key = pdc.get(typeKey, PersistentDataType.STRING);
         if (key == null || key.isBlank()) {
             return null;
         }
         return entityByKey.get(key.toLowerCase(Locale.ROOT));
+    }
+
+    public int readSpawnerTier(final ItemStack item) {
+        final PersistentDataContainer pdc = readablePdc(item);
+        if (pdc == null) {
+            return 1;
+        }
+        final Integer schema = pdc.get(schemaKey, PersistentDataType.INTEGER);
+        if (schema == null || schema == 1) {
+            return 1;
+        }
+        final Integer tier = pdc.get(tierKey, PersistentDataType.INTEGER);
+        return tier == null ? 1 : Math.max(1, tier);
     }
 
     public int templateCacheSize() {
@@ -114,7 +131,22 @@ public final class SpawnerItemService {
         return DISPLAY_NAMES.getOrDefault(type, type.name());
     }
 
-    private ItemStack createTemplate(final EntityType entityType) {
+    private PersistentDataContainer readablePdc(final ItemStack item) {
+        if (item == null || item.getType() != Material.SPAWNER || !item.hasItemMeta()) {
+            return null;
+        }
+        final PersistentDataContainer pdc = item.getItemMeta().getPersistentDataContainer();
+        if (!hasManagedMarker(pdc)) {
+            return null;
+        }
+        final Integer schema = pdc.get(schemaKey, PersistentDataType.INTEGER);
+        if (schema != null && (schema < MIN_SUPPORTED_SCHEMA || schema > CURRENT_SCHEMA)) {
+            return null;
+        }
+        return pdc;
+    }
+
+    private ItemStack createTemplate(final EntityType entityType, final NamespacedKey entityKey, final int tier) {
         final ItemStack item = new ItemStack(Material.SPAWNER, 1);
         final ItemMeta rawMeta = item.getItemMeta();
         if (!(rawMeta instanceof BlockStateMeta meta)) {
@@ -129,19 +161,24 @@ public final class SpawnerItemService {
 
         final PersistentDataContainer pdc = meta.getPersistentDataContainer();
         pdc.set(managedKey, PersistentDataType.INTEGER, 1);
-        pdc.set(typeKey, PersistentDataType.STRING, entityType.getKey().asString());
+        pdc.set(typeKey, PersistentDataType.STRING, entityKey.asString());
         pdc.set(schemaKey, PersistentDataType.INTEGER, CURRENT_SCHEMA);
+        pdc.set(tierKey, PersistentDataType.INTEGER, tier);
 
         final String display = pretty(entityType);
-        meta.displayName(miniMessage.deserialize(nameTemplate.replace("%mob%", display)));
+        meta.displayName(miniMessage.deserialize(resolve(nameTemplate, display, tier)));
 
         final List<Component> lore = new ArrayList<>(loreTemplate.size());
         for (final String line : loreTemplate) {
-            lore.add(miniMessage.deserialize(line.replace("%mob%", display)));
+            lore.add(miniMessage.deserialize(resolve(line, display, tier)));
         }
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
+    }
+
+    private static String resolve(final String input, final String display, final int tier) {
+        return input.replace("%mob%", display).replace("%tier%", Integer.toString(tier));
     }
 
     private boolean hasManagedMarker(final PersistentDataContainer pdc) {
@@ -149,13 +186,36 @@ public final class SpawnerItemService {
         return marker != null && marker == 1;
     }
 
-    private static Map<String, EntityType> buildEntityKeyLookup() {
+    static Map<String, EntityType> buildEntityKeyLookup() {
         final Map<String, EntityType> lookup = new HashMap<>();
         for (final EntityType type : EntityType.values()) {
-            lookup.put(type.getKey().asString().toLowerCase(Locale.ROOT), type);
+            final NamespacedKey entityKey = entityKeyOrNull(type);
+            if (entityKey == null) {
+                continue;
+            }
+            lookup.put(entityKey.asString().toLowerCase(Locale.ROOT), type);
             lookup.put(type.name().toLowerCase(Locale.ROOT), type);
         }
         return Map.copyOf(lookup);
+    }
+
+    static NamespacedKey requireManagedEntityKey(final EntityType type) {
+        final NamespacedKey key = entityKeyOrNull(type);
+        if (key == null) {
+            throw new IllegalArgumentException("Managed spawners require a keyed EntityType; got " + type);
+        }
+        return key;
+    }
+
+    private static NamespacedKey entityKeyOrNull(final EntityType type) {
+        if (type == null || type == EntityType.UNKNOWN) {
+            return null;
+        }
+        try {
+            return type.getKey();
+        } catch (final IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private static Map<EntityType, String> buildDisplayNames() {
@@ -184,4 +244,6 @@ public final class SpawnerItemService {
         }
         return builder.toString();
     }
+
+    private record TemplateKey(EntityType type, int tier) {}
 }
