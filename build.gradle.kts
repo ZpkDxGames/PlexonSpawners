@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.0.0-rc.1"
+version = "3.0.0-rc.2"
 
 val pluginVersion = version.toString()
 
@@ -30,6 +30,7 @@ dependencies {
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
+    testImplementation("io.papermc.paper:paper-api:26.2.build.121-stable")
     testImplementation("com.zpkdxgames:PlexonCore:2.0.4")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
