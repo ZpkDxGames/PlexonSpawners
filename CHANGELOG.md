@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.0.0 - Stable Managed-Spawner Release
+
+- Promoted the accepted 3.0 managed-spawner architecture and RC2 runtime-reliability line to stable.
+- Preserved persistent UUID/world/block/owner/tier/access/placement/lifetime-spawn state in `managed-spawners.db` schema 1.
+- Preserved managed item schema 2 with 2.x schema-1 item compatibility as tier 1.
+- Preserved bounded tier tuning, access policies, transactional Essence upgrade rollback/refund, chunk-indexed first-party spawn provenance and WildStacker fail-closed handling.
+- Retained the RC2 Paper 26.2 startup correction that guards `EntityType.UNKNOWN`, rejects it from managed records/items and fails closed on invalid UNKNOWN physical breaks.
+- Hardened chunk reconciliation so a persisted coordinate cannot claim an unrelated replacement spawner: physical PDC must prove the same managed UUID and exact world/block identity before registry state is reapplied.
+- Added direct regression coverage for managed physical identity matching.
+- Replaced the RC-specific publication path with canonical Build + exact-current-main stable Release workflows.
+- Stable Release now rebuilds/retests exact source, verifies Java 25/class major 69 and dependency isolation, publishes JAR/checksum/test/provenance evidence, downloads the public assets and verifies them before succeeding.
+- Stable rollback remains `v2.3.1` (`0ec54a04ecb77374874edf889b20286144c32a88`), with JAR SHA-256 `626299825e188db6f89dc5eb83f74bce3ce998aa3a45ffad817ee7372d39ffb8`.
+- Live PlexonCraft migration, placement/break/access/upgrade/restart/WildStacker/provenance/Spark/soak certification remains an operational follow-up and is recorded as `NOT_EXECUTED` when not run; CI does not infer live runtime PASS.
+
 ## 3.0.0-rc.1 - Phase 2 Premium Managed-Spawner Candidate
 
 - Added durable physical managed-spawner identity with stable UUID, world/block coordinates, owner, tier, access state, placement timestamp and lifetime attributed-spawn count.
