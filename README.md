@@ -1,14 +1,14 @@
 # PlexonSpawners
 
-PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. The 3.0 line adds persistent managed spawners, ownership/access, bounded tiers, Essence upgrades and first-party spawn provenance while preserving the 2.x Silk/Essence and WildStacker safety contract.
+PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. Stable 3.0 adds durable managed-spawner identity, ownership/access, bounded tiers, Essence upgrades and first-party spawn provenance while preserving the 2.x Silk/Essence and WildStacker safety contract.
 
-> Current Phase 2 branch version: `3.0.0-rc.1`. This is a prerelease candidate until PlexonCraft runtime certification passes.
+Current stable version: `3.0.0`.
 
 ## 3.0 product model
 
-A Plexon-managed physical spawner now has a stable identity and durable state:
+A Plexon-managed physical spawner has durable state:
 
-- spawner UUID;
+- stable spawner UUID;
 - world/block coordinates;
 - creature type;
 - owner UUID;
@@ -17,7 +17,9 @@ A Plexon-managed physical spawner now has a stable identity and durable state:
 - placement timestamp;
 - lifetime attributed spawns.
 
-The authoritative index is persisted to `plugins/PlexonSpawners/managed-spawners.db`. The physical `CreatureSpawner` also receives recovery PDC. Unsupported database schema is rejected instead of silently resetting data.
+The authoritative index is persisted to `plugins/PlexonSpawners/managed-spawners.db` using schema 1. The physical `CreatureSpawner` also carries recovery PDC. Unsupported database schema is rejected instead of silently resetting data.
+
+Chunk reconciliation is identity-safe: registry state is reapplied only when the physical spawner proves the same managed UUID and exact world/block identity. A vanilla, corrupt, missing or mismatched replacement spawner is not claimed by a stale registry row.
 
 ## Ownership and access
 
@@ -31,13 +33,7 @@ Right-click a managed spawner to open its control GUI. The GUI shows creature, o
 
 ## Tiers and upgrades
 
-Five conservative tiers ship by default. A tier controls:
-
-- minimum/maximum spawn delay;
-- spawn count;
-- nearby-entity cap;
-- required player range;
-- spawn range.
+Five conservative tiers ship by default. A tier controls minimum/maximum spawn delay, spawn count, nearby-entity cap, required player range and spawn range.
 
 Upgrades consume the exact PDC-backed Spawner Essence item. The transaction validates access and inventory first, reserves Essence, applies registry + physical state, and rolls back/refunds if physical application fails.
 
@@ -45,7 +41,7 @@ Upgrades consume the exact PDC-backed Spawner Essence item. The transaction vali
 
 For accepted Bukkit `SPAWNER` spawns, PlexonSpawners performs a bounded chunk-index lookup for a matching managed source, marks the entity with PDC provenance and records the stable source-spawner UUID.
 
-Downstream Plexon plugins should consume `PlexonSpawnersApi` instead of using lore checks, entity-history scans or per-hit database queries.
+Downstream Plexon plugins should consume `PlexonSpawnersApi` instead of lore checks, entity-history scans or per-hit database queries.
 
 ## Persistence and performance
 
@@ -57,27 +53,26 @@ The 3.0 runtime deliberately avoids per-spawner scheduling:
 - one single-thread snapshot writer;
 - coalesced dirty revisions;
 - atomic file replacement;
-- chunk-load reconciliation only for records already indexed in that chunk.
+- chunk reconciliation only for already indexed managed records.
 
-There are no global chunk/entity scans and no synchronous file writes in placement, break or spawn listeners.
+There are no global chunk/entity scans and no synchronous file writes in placement, break or spawn listeners. Shutdown cancels the coordinator before forcing the registry's final persistence flush.
 
 ## Recovery behavior
-
-The existing recovery model remains:
 
 - qualifying Silk Touch can recover the typed managed spawner;
 - failed qualification can roll Spawner Essence;
 - tier is preserved when a 3.x managed spawner is recovered;
 - 2.x schema-1 managed spawner items remain readable and map to tier 1;
+- `EntityType.UNKNOWN` is rejected from managed records/items and invalid UNKNOWN physical breaks fail closed;
 - WildStacker compatibility remains fail closed and removes only one unit when its provider safely accepts the operation.
 
 ## Core modes
 
-PlexonSpawners supports the current PlexonCore 2.0.4 baseline and Core API range `>=1.0 <3.0`. When Core is unavailable/incompatible, the established standalone bridge remains available; `/pspawners diagnostics` exposes the active mode and module state.
+PlexonSpawners supports PlexonCore 2.0.4 and Core API range `>=1.0 <3.0`. When Core is unavailable/incompatible, the established standalone bridge remains available. `/pspawners diagnostics` exposes the active mode and module state.
 
 ## Requirements
 
-- Paper 26.2
+- Paper 26.2 build 121 or compatible fork
 - Java 25
 - PlexonCore 2.0.4 recommended/current ecosystem baseline
 - WildStacker optional
@@ -106,7 +101,7 @@ PlexonSpawners supports the current PlexonCore 2.0.4 baseline and Core API range
 
 `com.plexon.spawners.api.PlexonSpawnersApi` is registered through Bukkit `ServicesManager`.
 
-The 2.x synchronous events remain compatible:
+The synchronous public events remain:
 
 - `PlexonSpawnerRecoveredEvent`
 - `PlexonSpawnerEssenceAwardedEvent`
@@ -116,20 +111,20 @@ The 3.0 API additionally exposes managed-spawner lookup/snapshots, tier-aware it
 
 ## Migration from 2.3.1
 
-Read `docs/MIGRATION_3_0.md` before staging the candidate. In summary: back up the old JAR and plugin directory, keep existing config/data, retain existing managed items, and allow 3.0 to create its managed registry only as new physical managed spawners are placed/recovered.
+Read `docs/MIGRATION_3_0.md` before deployment. Stop the server and back up both the old JAR and the complete plugin data directory. Stable 3.0 creates the managed registry as physical managed spawners enter the 3.x lifecycle; it does not globally scan historical world chunks.
 
-## Building
+Stable rollback is `v2.3.1` at `0ec54a04ecb77374874edf889b20286144c32a88`. Because 2.3.1 predates `managed-spawners.db`, rollback requires restoring the complete pre-3.0 plugin-data backup rather than asking 2.3.1 to consume 3.0 state.
 
-CI verifies the pinned PlexonCore 2.0.4 artifact and runs:
+## Building and release verification
 
-```bash
-gradle clean check --stacktrace
-```
+CI provisions the immutable PlexonCore 2.0.4 API using a pinned SHA-256 and runs the full Gradle test/check/JAR contract. Stable publication is allowed only from `release/stable` when it points to exact current `main`.
 
-The candidate runtime artifact is:
+The stable runtime artifact is:
 
 ```text
-build/libs/PlexonSpawners-3.0.0-rc.1.jar
+build/libs/PlexonSpawners-3.0.0.jar
 ```
 
-A release-candidate branch may publish `v3.0.0-rc.1` only after CI succeeds. Stable `3.0.0` promotion remains blocked until the documented PlexonCraft runtime gates pass.
+The GitHub stable release publishes the JAR, `SHA256SUMS.txt`, `TEST_SUMMARY.txt` and `PROVENANCE.txt`, then downloads and verifies those public assets before the Release workflow can pass.
+
+Live PlexonCraft migration, placement/break/access/upgrade/restart/WildStacker/provenance/Spark/soak validation remains a deployment follow-up and is not inferred from CI. GitHub provenance may therefore record `runtime_certification=NOT_EXECUTED`.
