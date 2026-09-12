@@ -21,6 +21,7 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.SpawnerSpawnEvent;
 
 /** Native Plexon stack scaling plus exact nearby logical-population guard. */
@@ -146,7 +147,9 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             final Location spawnLocation = event.getEntity().getLocation();
             final World world = spawnLocation.getWorld();
             for (int index = 0; index < extra; index++) {
-                world.spawnEntity(spawnLocation, managed.type());
+                // Preserve first-party SPAWNER provenance for the additional physical
+                // entities representing this logical native-stack contribution.
+                world.spawnEntity(spawnLocation, managed.type(), CreatureSpawnEvent.SpawnReason.SPAWNER);
             }
         }
     }
