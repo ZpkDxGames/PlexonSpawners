@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.junit.jupiter.api.Test;
 
@@ -32,5 +34,17 @@ class ConfigDefaultsMaterializationTest {
         assertTrue(serialized.contains("nearby-stack-cap:"));
         assertTrue(serialized.contains("maximum-amount: 99"));
         assertEquals(100.0D, config.getDouble("essence.default-chance"));
+    }
+
+    @Test
+    void essenceRuntimePersistsOnlyWhenBundledDefaultsAreMissingExplicitly() throws Exception {
+        final String source = Files.readString(
+            Path.of("src/main/java/com/plexon/spawners/item/EssenceService.java")
+        );
+
+        assertTrue(source.contains("defaults.getValues(true).keySet().stream()"));
+        assertTrue(source.contains("!config.contains(path, true)"));
+        assertTrue(source.contains("config.options().copyDefaults(true)"));
+        assertTrue(source.contains("plugin.saveConfig()"));
     }
 }
