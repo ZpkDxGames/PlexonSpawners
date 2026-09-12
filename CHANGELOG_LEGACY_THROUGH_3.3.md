@@ -1,0 +1,175 @@
+# Changelog
+
+## 3.3.0 - Native Plexon Spawner Stacking
+
+- Moved logical **spawner stacking** under first-party PlexonSpawners ownership while preserving WildStacker as an optional **entity/mob stacking** provider only.
+- Added first-class native `stackAmount` and persisted migration state to managed records; advanced `managed-spawners.db` from schema 1 to schema 2 and physical managed-spawner PDC state to schema 2.
+- Added backward-readable schema-1 migration: legacy records enter `PENDING`, import an existing WildStacker logical spawner amount once, durably persist `MIGRATING` before provider normalization, and finish as `MIGRATED` without multiplicative restart risk.
+- Added fail-closed `CONFLICT` handling plus `/pspawners migration status` and `/pspawners migration retry` diagnostics.
+- Added deterministic bounded vertical auto-stack with default range 8, default maximum stack size 64, and same entity/owner/tier/access compatibility requirements.
+- Added native ONE/ALL break semantics and a tier-preserving withdrawal GUI with 1/8/16/ALL actions and safe inventory overflow handling.
+- Changed tier-upgrade pricing to use `base cost × native Plexon stack amount`; stale GUI state is re-resolved before charging.
+- Added bounded native spawn scaling from `tier spawn-count × native stack amount`, with the existing nearby logical population cap remaining authoritative and a vanilla physical-output fallback cap when WildStacker is absent.
+- Removed WildStacker spawner amount from normal managed-stack runtime authority; WildStacker entity amount/resize remains the logical entity representation path.
+- Preserved the 3.2 redstone countdown freeze/restore architecture for the entire logical stack with one physical timer.
+- Added Paper `TextDisplay` stack titles with event/chunk-driven lifecycle, duplicate cleanup, `hide-title`, `hide-single`, tier text, view distance and vertical offset configuration.
+- Added explosion protection and piston movement guards for managed logical stacks.
+- Expanded Runtime Status with native stack amount/max, stack multiplier, requested bounded output, cycle cap, nearby cap, redstone state and WildStacker entity-integration status; open views refresh through one shared task.
+- Advanced configuration schema from 7 to 8 and materialized native stacking defaults without replacing administrator overrides.
+- Kept managed item schema 2 with schema-1 item compatibility; recovered/withdrawn stack units preserve their tier.
+- Added 3.3 native-stack policy/release contracts, migration documentation, stable release notes and exact distribution/provenance verification.
+- Stable publication is `v3.3.0` only: no 3.3 snapshot, beta, RC, prerelease or temporary public candidate is produced.
+- Actual pre-3.3 stable rollback remains `v3.1.1` (`e9c50532ba0c227153ddb69f70a073e04d326a01`), JAR SHA-256 `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`; `v3.2.0-rc.1` remains historical prerelease evidence rather than being misrepresented as a stable release.
+
+GitHub source/build certification and live PlexonCraft runtime certification remain separate. Stable provenance records live runtime as `NOT_EXECUTED` unless real Paper 26.2 server evidence is supplied.
+
+## 3.2.0-rc.1 - WildStacker Runtime Compatibility & Redstone Control Candidate
+
+- Preserved WildStacker's stacked-spawner output through the exact logical nearby-cap path instead of intentionally degrading near-cap cycles to loose entities.
+- Added cached public-API `StackedEntity#setStackAmount(...)` access so a pending WildStacker stack can be trimmed to the exact remaining logical capacity before world admission.
+- Continued cancelling unsafe direct `EntityStackEvent` merges near the cap, allowing WildStacker to construct a fresh stacked entity instead.
+- Added a managed redstone lock that freezes the live spawn countdown under direct or indirect power and restores the same countdown when power is removed.
+- Added PDC-backed frozen-delay recovery plus chunk-unload/plugin-shutdown restoration so the internal hold delay is not treated as the real countdown.
+- Added one shared loaded-managed-spawner redstone reconciliation task; no per-spawner repeating scheduler is introduced.
+- Added Paper/Bukkit spawn-time redstone safety gates and immediate reconciliation after managed placement/tier updates.
+- Added a Runtime Status GUI item showing next-spawn ticks/seconds, redstone lock/signal, WildStacker output state/logical spawner amount and logical cap/radius.
+- Advanced configuration schema from 6 to 7 with `managed.redstone-lock.enabled` and `managed.redstone-lock.poll-interval-ticks`.
+- Preserved managed persistence schema 1, managed item schema 2, ownership/access, tier tuning, Essence, provenance and existing 3.1 logical-cap semantics.
+- Added regression contracts for stacked near-cap output, redstone freeze/PDC recovery, live runtime status and schema-7 config materialization.
+- Added exact-current-main prerelease publication for `v3.2.0-rc.1` with immutable JAR/checksum/test/provenance evidence.
+- Stable rollback remains `v3.1.1` (`e9c50532ba0c227153ddb69f70a073e04d326a01`), JAR SHA-256 `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`.
+
+Live PlexonCraft runtime certification is required before stable promotion and is recorded as `NOT_EXECUTED` for this source candidate.
+
+## 3.1.1 - Stable Configuration Visibility Hotfix
+
+- Fixed upgraded installations keeping a sparse physical `config.yml` while Bukkit silently resolved missing values from bundled defaults.
+- Added explicit/default-aware detection so missing bundled keys are materialized into the file on disk without overwriting administrator values.
+- Ensures `managed.nearby-stack-cap` is visible and directly editable after first startup on 3.1.1.
+- Preserved configuration schema 6, managed persistence schema 1 and managed item schema 2.
+- Preserved the 3.1.0 WildStacker logical stack-cap behavior and runtime architecture unchanged.
+- Advanced the stable rollback baseline to `v3.1.0` (`8aaf1b7078edf5e9076af02035d204e123b3958a`), JAR SHA-256 `00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65`.
+
+GitHub source/build certification remains separate from live PlexonCraft runtime certification.
+
+## 3.1.0 - Stable WildStacker Nearby Logical Stack Cap
+
+- Added `managed.nearby-stack-cap` with defaults `enabled: true`, `radius: 8.0`, `maximum-amount: 99`, and `same-type-only: true`.
+- Added bounded same-type population counting that uses WildStacker's real logical entity stack amount when available and physical amount `1` when WildStacker is absent.
+- Extended the existing cached reflective WildStacker bridge with entity/spawner amount accessors and lifecycle-cached `SpawnerStackedEntitySpawnEvent` / `EntityStackEvent` interception.
+- Added fast-path versus granular spawn decisions using the proven upper bound `spawn-count × WildStacker spawner stack amount`.
+- Near the cap, disables WildStacker's direct stacked contribution, cancels the direct `EntityStackEvent`, and gates unit spawns through Paper `PreSpawnerSpawnEvent` so the standard overridden-spawner path does not intentionally overshoot.
+- Added a conservative whole-cycle rejection fallback for non-overridden Bukkit `SpawnerSpawnEvent` contributions when the public event contract cannot safely expose a partial amount.
+- Hardened WildStacker degradation handling so dynamically registered guard events are unregistered immediately if reflective compatibility becomes unavailable.
+- Preserved managed UUID identity, persistence schema 1, item schema 2, ownership/access, tier tuning, provenance, break/unstack behavior and first-party persistence semantics.
+- Kept tier `max-nearby-entities` separate from the new logical stack cap.
+- Added guard diagnostics counters for checks, blocked attempts, logical entities counted, WildStacker amount lookups and fail-closed decisions.
+- Bumped configuration schema from 5 to 6 using additive defaults only; existing administrator customizations are not rewritten.
+- Added policy/settings/source-contract regression coverage and dedicated migration/release documentation.
+- Removed the 3.1 prerelease publication path and converted the line to stable-only publication from exact current `main` through `release/stable`.
+- Stable rollback is `v3.0.0` (`df5ba1970add67a46dc1afc0d844578144a88df1`), JAR SHA-256 `61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564`.
+
+GitHub source/build certification requires the complete test/check/JAR/distribution pipeline to pass on exact stable source. Live PlexonCraft runtime certification remains a separate operational gate and is recorded as `NOT_EXECUTED` when no live server evidence has been supplied.
+
+## 3.0.0 - Stable Managed-Spawner Release
+
+- Promoted the accepted 3.0 managed-spawner architecture and RC2 runtime-reliability line to stable.
+- Preserved persistent UUID/world/block/owner/tier/access/placement/lifetime-spawn state in `managed-spawners.db` schema 1.
+- Preserved managed item schema 2 with 2.x schema-1 item compatibility as tier 1.
+- Preserved bounded tier tuning, access policies, transactional Essence upgrade rollback/refund, chunk-indexed first-party spawn provenance and WildStacker fail-closed handling.
+- Retained the RC2 Paper 26.2 startup correction that guards `EntityType.UNKNOWN`, rejects it from managed records/items and fails closed on invalid UNKNOWN physical breaks.
+- Hardened chunk reconciliation so a persisted coordinate cannot claim an unrelated replacement spawner: physical PDC must prove the same managed UUID and exact world/block identity before registry state is reapplied.
+- Added direct regression coverage for managed physical identity matching.
+- Replaced the RC-specific publication path with canonical Build + exact-current-main stable Release workflows.
+- Stable Release now rebuilds/retests exact source, verifies Java 25/class major 69 and dependency isolation, publishes JAR/checksum/test/provenance evidence, downloads the public assets and verifies them before succeeding.
+- Stable rollback remains `v2.3.1` (`0ec54a04ecb77374874edf889b20286144c32a88`), with JAR SHA-256 `626299825e188db6f89dc5eb83f74bce3ce998aa3a45ffad817ee7372d39ffb8`.
+- Live PlexonCraft migration, placement/break/access/upgrade/restart/persistence/provenance/WildStacker/Spark/soak certification remains an operational follow-up and is recorded as `NOT_EXECUTED` when not run; CI does not infer live runtime PASS.
+
+## 3.0.0-rc.1 - Phase 2 Premium Managed-Spawner Candidate
+
+- Added durable physical managed-spawner identity with stable UUID, world/block coordinates, owner, tier, access state, placement timestamp and lifetime attributed-spawn count.
+- Added `managed-spawners.db` schema 1 with explicit header validation, atomic snapshot replacement, one shared persistence coordinator and one single-thread writer.
+- Added in-memory block and chunk indexes; no global chunk/entity scan or per-spawner repeating task is introduced.
+- Added five bounded configurable spawner tiers controlling spawn delay, spawn count, nearby cap, activation range and spawn range.
+- Added `OWNER_ONLY`, `PUBLIC_USE` and `PUBLIC` access policies with owner/admin management and break enforcement.
+- Added right-click managed-spawner control GUI with creature/owner/tier/stat/access visibility, stable close behavior and protected clicks/drags.
+- Added transactional PDC-backed Spawner Essence upgrades with registry/physical rollback and Essence refund on physical-apply failure.
+- Advanced managed item schema to 2 with `spawner_tier`, while preserving schema-1 2.x item compatibility as tier 1.
+- Preserved tier on qualified recovered managed-spawner items.
+- Added physical `CreatureSpawner` recovery PDC for id/owner/tier/access/placement state.
+- Added bounded chunk-indexed `SPAWNER` spawn attribution and entity PDC provenance with stable source-spawner UUID.
+- Expanded `PlexonSpawnersApi` with tier-aware items, managed-spawner lookups/snapshots and provenance queries for Skills/Jobs/Quests/Keys integrations.
+- Added chunk-load and already-loaded reconciliation limited to records already present in the managed registry.
+- Added configurable per-chunk managed-spawner safety cap.
+- Updated diagnostics to expose managed runtime count, tier ceiling, persistence cadence, provenance radius and chunk cap.
+- Extended `/pspawners give` with an optional managed spawner tier.
+- Updated Paper 26.2 / Java 25 / PlexonCore 2.0.4 build/release-candidate pipeline and removed the obsolete 2.3.0 tag workflow.
+- Added Phase 2 source-contract coverage for two-phase placement, schema migration, chunk-bounded provenance, access gates, coalesced persistence and upgrade rollback/refund.
+- Added 3.0 API/migration documentation and explicit prerelease runtime-certification boundary.
+
+**RUNTIME CERTIFICATION NOT EXECUTED** for this candidate. Stable promotion remains blocked until the PlexonCraft placement/break/access/upgrade/restart/persistence/provenance/WildStacker/Spark/soak matrix passes.
+
+## 2.3.1 - PlexonCore 2.0.4 Stabilization
+
+- Pinned PlexonCore 2.0.4 and its release SHA-256 in CI.
+- Added Core API compatibility for `>=1.0 <3.0` while rejecting unsupported Core 3.x.
+- Updated module lifecycle ownership for PlexonCore 2.x and preserved safe standalone fallback.
+- Added source-level stabilization contracts around managed-item identity, placement, break ownership, Essence overflow, hot-path I/O, cache reload and Core integration.
+- Preserved the 2.3 gameplay/GUI line as the rollback baseline before the Phase 2 premium rewrite.
+
+## 2.3.0 - Stable Performance & Reliability
+
+- Cached WildStacker lifecycle/API resolution so steady-state spawner breaks no longer perform plugin lookup, class loading, or method discovery.
+- Added safe WildStacker enable/disable lifecycle handling and preserved fail-closed behavior for incompatible, cancelled, degraded, or disabled providers.
+- Compiled gameplay configuration into an immutable runtime snapshot with resolved world UUIDs, precompiled per-EntityType Essence rules, and validation warnings.
+- Reduced accepted-break allocations by making transaction UUIDs lazy, reusing successful-outcome locations, and avoiding unnecessary Silk bypass permission checks.
+- Added per-EntityType managed spawner item template caching while preserving exact BlockStateMeta and PDC identity.
+- Added O(1) managed `spawner_type` PDC lookup and cached EntityType display names.
+- Added optional `spawner_schema` PDC versioning on new managed items while keeping existing 2.x managed spawners readable.
+- Cached Essence maximum stack size and added minimum-stack bulk creation.
+- Changed inventory Essence delivery to one bounded `Inventory#addItem` operation with overflow handled once.
+- Added warnings for configurations capable of creating excessive ground Essence item entities without silently changing the configured logical award.
+- Expanded diagnostics with WildStacker resolution/cache state, world-filter state, Essence defaults/overrides/max-stack size, managed template cache size, entity-key lookup size, and config warning count.
+- Precomputed the admin spawnable-entity completion list.
+- Preserved Paper 26.2 / Java 25, public spawner events, strict Silk rules, one-unit stacked-spawner recovery, protection compatibility, PDC item identity, and database-free/stateless runtime.
+
+## 2.2.0 - PlexonCore Migration & Public Spawner Event API
+
+- Migrated PlexonSpawners to the PlexonCore module bridge while preserving standalone operation.
+- Added Core API range validation and module lifecycle states STARTING/READY/DEGDED/FAILED.
+- Registered module id `spawners` and published implemented spawner/API/event/WildStacker/stateless capabilities.
+- Added `PlexonSpawnerRecoveredEvent`, `PlexonSpawnerEssenceAwardedEvent`, and `PlexonSpawnerPlacedEvent` as stable synchronous post-success Bukkit events.
+- Added non-empty transaction IDs and event IDs for public event correlation and deduplication.
+- Preserved the existing `PlexonSpawnersApi` ServicesManager contract.
+- Added `/pspawners diagnostics` and expanded `/pspawners info` with Core mode, module state, Silk, Essence, WildStacker, API and event status.
+- Preserved the historical WildStacker integration ordering and added `softdepend: PlexonCore`.
+- PlexonCore is compile-only/provided and CI verifies its runtime classes are not shaded.
+
+## 2.1.0 - PlexonCraft Presentation Update
+
+- Redesigned recovered spawner item names and lore around the PlexonCraft primary/secondary color palette.
+- Added `<!italic>` to stock item formatting for clean non-italic Minecraft lore.
+- Replaced generic plugin-facing lore with concise collectible-style flavor text, creature metadata, placement state, and a PlexonCraft footer.
+- Reworked `messages.yml` into the PlexonCraft message theme.
+- Preserved the stable break ownership, WildStacker compatibility, Silk Touch, Essence, XP, world, and Creative-mode logic.
+
+## 2.0.2 - Silk Touch Qualification Hotfix
+
+- Fixed operators/admins automatically qualifying for spawner recovery without Silk Touch.
+- Changed `plexonspawners.bypass.silk` to `default: false`.
+- Added `breaking.allow-silk-bypass-permission`, disabled by default.
+
+## 2.0.1 - Spawner Ownership & WildStacker Compatibility
+
+- Added authoritative break ownership and WildStacker one-unit compatibility.
+- Preserved fail-closed handling when the stack provider cannot safely complete the operation.
+
+## 2.0.0 - GUI & Configuration Update
+
+- Redesigned the admin interface into focused pages.
+- Added configurable Essence drop chances and per-mob overrides.
+- Added configuration versioning and safe 1.x migration.
+
+## 1.0.0 - Initial Release
+
+- Released standalone Paper 26.2 / Java 25 spawner handling, typed spawners, physical PDC-secured Essence, GUI administration, and Bukkit ServicesManager API.
