@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 env:
-  BASELINE_STABLE_TAG: 'v3.0.0'
-  BASELINE_STABLE_SHA: 'df5ba1970add67a46dc1afc0d844578144a88df1'
-  BASELINE_STABLE_JAR_SHA256: '61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564'
+  BASELINE_STABLE_TAG: 'v3.1.0'
+  BASELINE_STABLE_SHA: '8aaf1b7078edf5e9076af02035d204e123b3958a'
+  BASELINE_STABLE_JAR_SHA256: '00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65'
   CORE_VERSION: '2.0.4'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
@@ -135,6 +135,7 @@ jobs:
           plexoncore=$CORE_VERSION
           plexoncore_sha256=$CORE_SHA256
           config_schema=6
+          config_defaults_materialized=PASS
           managed_persistence_schema=1
           managed_item_schema=2
           nearby_stack_cap_default_radius=8.0
