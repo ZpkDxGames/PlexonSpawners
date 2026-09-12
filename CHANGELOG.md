@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.1.0-rc.1 - WildStacker Nearby Logical Stack Cap Candidate
+
+- Added `managed.nearby-stack-cap` with defaults `enabled: true`, `radius: 8.0`, `maximum-amount: 99`, and `same-type-only: true`.
+- Added bounded same-type population counting that uses WildStacker's real logical entity stack amount when available and physical amount `1` when WildStacker is absent.
+- Extended the existing cached reflective WildStacker bridge with entity/spawner amount accessors and lifecycle-cached `SpawnerStackedEntitySpawnEvent` / `EntityStackEvent` interception.
+- Added fast-path versus granular spawn decisions using the proven upper bound `spawn-count × WildStacker spawner stack amount`.
+- Near the cap, disables WildStacker's direct stacked contribution, cancels the direct `EntityStackEvent`, and gates unit spawns through Paper `PreSpawnerSpawnEvent` so the standard overridden-spawner path does not intentionally overshoot.
+- Added a conservative whole-cycle rejection fallback for non-overridden Bukkit `SpawnerSpawnEvent` contributions when the public event contract cannot safely expose a partial amount.
+- Preserved managed UUID identity, persistence schema 1, item schema 2, ownership/access, tier tuning, provenance, break/unstack behavior and first-party persistence semantics.
+- Kept tier `max-nearby-entities` separate from the new logical stack cap.
+- Added guard diagnostics counters for checks, blocked attempts, logical entities counted, WildStacker amount lookups and fail-closed decisions.
+- Bumped configuration schema from 5 to 6 using additive defaults only; existing administrator customizations are not rewritten.
+- Added policy/settings/source-contract regression coverage and dedicated migration/release documentation.
+- Updated distribution verification for the new runtime classes and added a dedicated exact-main prerelease publication workflow.
+
+**RUNTIME CERTIFICATION NOT EXECUTED.** This candidate must be verified on PlexonCraft with Paper 26.2, WildStacker's standard spawner-override mode, managed `x99` cap/resume, different-type isolation, overlapping managed spawners, stacked spawners, restart and MSPT/TPS checks before stable promotion.
+
 ## 3.0.0 - Stable Managed-Spawner Release
 
 - Promoted the accepted 3.0 managed-spawner architecture and RC2 runtime-reliability line to stable.

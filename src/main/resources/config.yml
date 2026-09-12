@@ -1,5 +1,5 @@
 # ============================================================================
-# PlexonSpawners 3.0.0-rc.1 - Main Configuration
+# PlexonSpawners 3.1.0-rc.1 - Main Configuration
 # Paper 26.2 / Java 25 / PlexonCore 2.0.4
 # ============================================================================
 # High-frequency listeners read compiled runtime snapshots only. Managed-spawner
@@ -7,10 +7,10 @@
 # placement, break or spawned entity.
 # ============================================================================
 
-config-version: 5
+config-version: 6
 
 managed:
-  # Enables the Phase 2 persistent managed-spawner product layer.
+  # Enables the persistent managed-spawner product layer.
   enabled: true
 
   # One shared persistence coordinator flushes dirty snapshots at this cadence.
@@ -18,20 +18,28 @@ managed:
   persistence-interval-ticks: 100
 
   # Bounded chunk-indexed lookup radius used to attribute SPAWNER spawn events.
-  # The runtime automatically raises this when a configured tier spawn-range
-  # requires a slightly larger safe attribution radius.
   provenance-search-radius: 8
 
   # Safety bound for individually managed physical spawner blocks in one chunk.
   # WildStacker stacks still represent one physical managed location.
   max-managed-per-chunk: 64
 
+  # Logical nearby-population guard. This is deliberately separate from each
+  # tier's native max-nearby-entities value.
+  nearby-stack-cap:
+    enabled: true
+    # Axis-aligned nearby query radius in blocks. Range: 1.0-32.0.
+    radius: 8.0
+    # Logical population, including WildStacker stack amounts. Range: 1-1000000.
+    maximum-amount: 99
+    # When true, only the managed spawner's entity type contributes to the cap.
+    same-type-only: true
+
   # OWNER_ONLY -> owner/admin inspect/manage/break
   # PUBLIC_USE -> everyone may inspect; owner/admin manage/break
   # PUBLIC     -> everyone may inspect/break; owner/admin manage
   default-access: OWNER_ONLY
 
-  # 3.0 ships five deliberately conservative tuning stages.
   max-tier: 5
 
   tiers:
@@ -83,26 +91,18 @@ managed:
 
 breaking:
   enabled: true
-
-  # Recommended. PlexonSpawners owns an accepted break and prevents duplicate
-  # vanilla/third-party drops. WildStacker remains fail-closed.
   take-ownership: true
-
   required-silk-touch-level: 3
   allow-silk-bypass-permission: false
   drop-spawner-when-qualified: true
   drop-experience: false
   creative-drops: false
-
-  # [] enables every world. Names are matched case-insensitively.
   enabled-worlds: []
 
 essence:
   enabled: true
   default-chance: 35.0
   default-amount: 1
-
-  # GROUND or INVENTORY. Inventory overflow safely falls back to ground drops.
   delivery: GROUND
 
   mob-overrides:
@@ -122,8 +122,6 @@ essence:
       amount: 6
       chance: 20.0
 
-  # Exact ItemStack captured by the existing admin GUI. null uses the built-in
-  # PDC-backed Spawner Essence item.
   item: null
 
 spawner-item:

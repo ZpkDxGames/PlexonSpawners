@@ -3,6 +3,7 @@ package com.plexon.spawners;
 import com.plexon.spawners.api.PlexonSpawnersApi;
 import com.plexon.spawners.command.PlexonSpawnersCommand;
 import com.plexon.spawners.compat.WildStackerCompat;
+import com.plexon.spawners.config.NearbyStackCapSettings;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
@@ -11,6 +12,7 @@ import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.integration.core.CoreBridgeFactory;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
+import com.plexon.spawners.listener.NearbyStackCapListener;
 import com.plexon.spawners.listener.SpawnerBreakListener;
 import com.plexon.spawners.listener.SpawnerChunkListener;
 import com.plexon.spawners.listener.SpawnerPlaceListener;
@@ -65,6 +67,7 @@ public final class PlexonSpawners extends JavaPlugin {
 
     private final PluginSettings settings = new PluginSettings();
     private final SpawnerTuning tuning = new SpawnerTuning();
+    private final NearbyStackCapSettings nearbyStackCapSettings = new NearbyStackCapSettings();
     private final PerformanceCounters performanceCounters = new PerformanceCounters();
 
     private MessageService messages;
@@ -90,6 +93,7 @@ public final class PlexonSpawners extends JavaPlugin {
             messages = new MessageService(this);
             settings.reload(getConfig());
             tuning.reload(getConfig());
+            nearbyStackCapSettings.reload(getConfig());
             reportConfigurationWarnings();
             essenceService = new EssenceService(this);
             spawnerItemService = new SpawnerItemService(this);
@@ -121,6 +125,13 @@ public final class PlexonSpawners extends JavaPlugin {
                 messages
             );
             wildStackerCompat = new WildStackerCompat(this, detail -> coreBridge.markDegraded(detail));
+            final NearbyStackCapListener nearbyStackCapListener = new NearbyStackCapListener(
+                managedRegistry,
+                nearbyStackCapSettings,
+                wildStackerCompat,
+                performanceCounters
+            );
+            wildStackerCompat.setSpawnGuard(nearbyStackCapListener);
 
             final PluginCommand pluginCommand = getCommand("pspawners");
             if (pluginCommand == null) {
@@ -137,6 +148,7 @@ public final class PlexonSpawners extends JavaPlugin {
             getServer().getPluginManager().registerEvents(adminGui, this);
             getServer().getPluginManager().registerEvents(controlGui, this);
             getServer().getPluginManager().registerEvents(chunkListener, this);
+            getServer().getPluginManager().registerEvents(nearbyStackCapListener, this);
             getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
                 new SpawnerBreakListener(
@@ -170,7 +182,7 @@ public final class PlexonSpawners extends JavaPlugin {
             schedulePersistenceCoordinator();
 
             coreBridge.markReady(
-                "Managed spawner registry, tier engine, provenance, cached item runtime, public API/events and diagnostics ready"
+                "Managed spawner registry, tiers, nearby logical stack cap, provenance, cached item runtime, API/events and diagnostics ready"
             );
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
                 + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode with "
@@ -201,6 +213,7 @@ public final class PlexonSpawners extends JavaPlugin {
         reloadConfig();
         settings.reload(getConfig());
         tuning.reload(getConfig());
+        nearbyStackCapSettings.reload(getConfig());
         if (messages != null) {
             messages.reload();
         }
@@ -223,6 +236,10 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public SpawnerTuning tuning() {
         return tuning;
+    }
+
+    public NearbyStackCapSettings nearbyStackCapSettings() {
+        return nearbyStackCapSettings;
     }
 
     public PlexonSpawnersApi api() {
@@ -327,9 +344,26 @@ public final class PlexonSpawners extends JavaPlugin {
             changed = true;
         }
 
+        if (configVersion < 6) {
+            if (!getConfig().contains("managed.nearby-stack-cap.enabled")) {
+                getConfig().set("managed.nearby-stack-cap.enabled", true);
+            }
+            if (!getConfig().contains("managed.nearby-stack-cap.radius")) {
+                getConfig().set("managed.nearby-stack-cap.radius", NearbyStackCapSettings.DEFAULT_RADIUS);
+            }
+            if (!getConfig().contains("managed.nearby-stack-cap.maximum-amount")) {
+                getConfig().set("managed.nearby-stack-cap.maximum-amount", NearbyStackCapSettings.DEFAULT_MAXIMUM);
+            }
+            if (!getConfig().contains("managed.nearby-stack-cap.same-type-only")) {
+                getConfig().set("managed.nearby-stack-cap.same-type-only", true);
+            }
+            getConfig().set("config-version", 6);
+            changed = true;
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 3.0 compatibility.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 3.1 compatibility.");
         }
     }
 }

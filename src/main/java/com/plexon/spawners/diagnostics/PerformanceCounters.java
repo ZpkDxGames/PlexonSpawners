@@ -24,6 +24,11 @@ public final class PerformanceCounters {
     private long blockPlaceEventsSeen;
     private long managedPlacementSuccesses;
     private long vanillaSpawnerPlacementRejects;
+    private long nearbyStackCapChecks;
+    private long nearbyStackCapBlocked;
+    private long nearbyStackCapLogicalEntitiesCounted;
+    private long nearbyStackCapWildStackerLookups;
+    private long nearbyStackCapFailClosed;
 
     public void blockBreakSeen() { blockBreakEventsSeen++; }
     public void nonSpawnerFastReject() { nonSpawnerFastRejects++; }
@@ -44,6 +49,11 @@ public final class PerformanceCounters {
     public void blockPlaceSeen() { blockPlaceEventsSeen++; }
     public void managedPlacementSuccess() { managedPlacementSuccesses++; }
     public void vanillaSpawnerPlacementReject() { vanillaSpawnerPlacementRejects++; }
+    public void nearbyStackCapCheck() { nearbyStackCapChecks++; }
+    public void nearbyStackCapBlocked() { nearbyStackCapBlocked++; }
+    public void nearbyStackCapLogicalEntitiesCounted(final int amount) { nearbyStackCapLogicalEntitiesCounted += amount; }
+    public void nearbyStackCapWildStackerLookup() { nearbyStackCapWildStackerLookups++; }
+    public void nearbyStackCapFailClosed() { nearbyStackCapFailClosed++; }
 
     public Snapshot snapshot() {
         return new Snapshot(
@@ -65,7 +75,12 @@ public final class PerformanceCounters {
             essenceGroundEntitiesCreated,
             blockPlaceEventsSeen,
             managedPlacementSuccesses,
-            vanillaSpawnerPlacementRejects
+            vanillaSpawnerPlacementRejects,
+            nearbyStackCapChecks,
+            nearbyStackCapBlocked,
+            nearbyStackCapLogicalEntitiesCounted,
+            nearbyStackCapWildStackerLookups,
+            nearbyStackCapFailClosed
         );
     }
 
@@ -88,6 +103,11 @@ public final class PerformanceCounters {
         long essenceGroundEntitiesCreated,
         long blockPlaceEventsSeen,
         long managedPlacementSuccesses,
-        long vanillaSpawnerPlacementRejects
+        long vanillaSpawnerPlacementRejects,
+        long nearbyStackCapChecks,
+        long nearbyStackCapBlocked,
+        long nearbyStackCapLogicalEntitiesCounted,
+        long nearbyStackCapWildStackerLookups,
+        long nearbyStackCapFailClosed
     ) {}
 }
