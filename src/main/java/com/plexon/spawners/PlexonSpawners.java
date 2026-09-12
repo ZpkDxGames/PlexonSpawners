@@ -180,6 +180,7 @@ public final class PlexonSpawners extends JavaPlugin {
                     spawnerStateService,
                     managedRegistry,
                     tuning,
+                    redstoneLockService,
                     performanceCounters
                 ),
                 this
