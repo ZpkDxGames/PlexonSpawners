@@ -34,9 +34,10 @@ class SpawnersStabilizationContractTest {
         assertTrue(place.contains("pendingPlacements"));
         assertTrue(place.contains("readSpawnerType(event.getItemInHand())"));
         assertTrue(place.contains("stateService.apply(spawner, record, tuning.tier(tier))"));
-        assertTrue(place.contains("registry.register(pending)"));
+        assertTrue(place.contains("registerStandalone(pending)"));
         assertTrue(place.contains("registry.findAutoStackTarget"));
         assertTrue(place.contains("NativeStackPolicy.merge"));
+        assertTrue(place.contains("pending.withStackAmount(merge.remainder())"));
     }
 
     @Test
