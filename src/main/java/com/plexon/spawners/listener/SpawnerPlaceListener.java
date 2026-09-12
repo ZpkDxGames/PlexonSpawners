@@ -5,6 +5,7 @@ import com.plexon.spawners.event.PlexonSpawnerPlacedEvent;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.managed.ManagedSpawner;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.RedstoneSpawnerLockService;
 import com.plexon.spawners.managed.SpawnerStateService;
 import com.plexon.spawners.managed.SpawnerTuning;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ public final class SpawnerPlaceListener implements Listener {
     private final SpawnerStateService stateService;
     private final ManagedSpawnerRegistry registry;
     private final SpawnerTuning tuning;
+    private final RedstoneSpawnerLockService redstoneLocks;
     private final PerformanceCounters counters;
     private final Map<PlacementKey, ManagedSpawner> pendingPlacements = new HashMap<>();
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
@@ -34,12 +36,14 @@ public final class SpawnerPlaceListener implements Listener {
         final SpawnerStateService stateService,
         final ManagedSpawnerRegistry registry,
         final SpawnerTuning tuning,
+        final RedstoneSpawnerLockService redstoneLocks,
         final PerformanceCounters counters
     ) {
         this.spawnerItemService = spawnerItemService;
         this.stateService = stateService;
         this.registry = registry;
         this.tuning = tuning;
+        this.redstoneLocks = redstoneLocks;
         this.counters = counters;
     }
 
@@ -113,6 +117,7 @@ public final class SpawnerPlaceListener implements Listener {
                 return;
             }
             registry.register(pending);
+            redstoneLocks.refresh(pending);
         }
         counters.managedPlacementSuccess();
 
