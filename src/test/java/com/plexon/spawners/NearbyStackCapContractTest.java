@@ -26,12 +26,14 @@ class NearbyStackCapContractTest {
     void directWildStackerIncreasePathIsIntercepted() throws Exception {
         final String compat = source("compat/WildStackerCompat.java");
         final String listener = source("listener/NearbyStackCapListener.java");
+        final String policy = source("managed/NearbyStackCapPolicy.java");
         assertTrue(compat.contains("SpawnerStackedEntitySpawnEvent"));
         assertTrue(compat.contains("EntityStackEvent"));
         assertTrue(compat.contains("setShouldBeStacked"));
         assertTrue(compat.contains("setCancelled"));
         assertTrue(listener.contains("shouldCancelEntityStack"));
-        assertTrue(listener.contains("Decision.GRANULAR"));
+        assertTrue(listener.contains("cycle.mode != NearbyStackCapPolicy.Decision.FAST_PATH"));
+        assertTrue(policy.contains("return Decision.GRANULAR"));
     }
 
     @Test

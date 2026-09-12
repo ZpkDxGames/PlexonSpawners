@@ -119,7 +119,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onSpawnerSpawn(final SpawnerSpawnEvent event) {
-        if (!enabled()) {
+        if (!enabled() || !wildStacker.installed()) {
             return;
         }
 
@@ -144,23 +144,21 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             cancelSpawnerSpawn(event, true);
             return;
         }
-        if (count.logicalAmount > settings.maximumAmount()) {
+        if (count.logicalAmount >= settings.maximumAmount()) {
             cancelSpawnerSpawn(event, false);
             return;
         }
 
-        if (wildStacker.installed()) {
-            final WildStackerCompat.Amount stackAmount = wildStacker.getLogicalSpawnerAmount(spawner);
-            if (stackAmount.result() != WildStackerCompat.Result.SUCCESS) {
-                cancelSpawnerSpawn(event, true);
-                return;
-            }
-            counters.nearbyStackCapWildStackerLookup();
-            final int additional = Math.max(0, stackAmount.amount() - 1);
-            final int remaining = NearbyStackCapPolicy.remainingCapacity(count.logicalAmount, settings.maximumAmount());
-            if (additional > remaining) {
-                cancelSpawnerSpawn(event, false);
-            }
+        final WildStackerCompat.Amount stackAmount = wildStacker.getLogicalSpawnerAmount(spawner);
+        if (stackAmount.result() != WildStackerCompat.Result.SUCCESS) {
+            cancelSpawnerSpawn(event, true);
+            return;
+        }
+        counters.nearbyStackCapWildStackerLookup();
+        final int additional = Math.max(0, stackAmount.amount() - 1);
+        final int remaining = NearbyStackCapPolicy.remainingCapacity(count.logicalAmount, settings.maximumAmount());
+        if (additional > remaining) {
+            cancelSpawnerSpawn(event, false);
         }
     }
 
