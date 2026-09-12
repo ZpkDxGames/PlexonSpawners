@@ -1,11 +1,14 @@
 package com.plexon.spawners.listener;
 
+import com.plexon.spawners.config.NativeStackSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.event.PlexonSpawnerPlacedEvent;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.managed.ManagedSpawner;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.NativeStackPolicy;
 import com.plexon.spawners.managed.RedstoneSpawnerLockService;
+import com.plexon.spawners.managed.SpawnerStackDisplayService;
 import com.plexon.spawners.managed.SpawnerStateService;
 import com.plexon.spawners.managed.SpawnerTuning;
 import java.util.HashMap;
@@ -13,6 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
+import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.EntityType;
@@ -26,7 +30,9 @@ public final class SpawnerPlaceListener implements Listener {
     private final SpawnerStateService stateService;
     private final ManagedSpawnerRegistry registry;
     private final SpawnerTuning tuning;
+    private final NativeStackSettings stackSettings;
     private final RedstoneSpawnerLockService redstoneLocks;
+    private final SpawnerStackDisplayService displays;
     private final PerformanceCounters counters;
     private final Map<PlacementKey, ManagedSpawner> pendingPlacements = new HashMap<>();
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
@@ -36,14 +42,18 @@ public final class SpawnerPlaceListener implements Listener {
         final SpawnerStateService stateService,
         final ManagedSpawnerRegistry registry,
         final SpawnerTuning tuning,
+        final NativeStackSettings stackSettings,
         final RedstoneSpawnerLockService redstoneLocks,
+        final SpawnerStackDisplayService displays,
         final PerformanceCounters counters
     ) {
         this.spawnerItemService = spawnerItemService;
         this.stateService = stateService;
         this.registry = registry;
         this.tuning = tuning;
+        this.stackSettings = stackSettings;
         this.redstoneLocks = redstoneLocks;
+        this.displays = displays;
         this.counters = counters;
     }
 
@@ -70,25 +80,23 @@ public final class SpawnerPlaceListener implements Listener {
             return;
         }
 
-        if (registry.countInChunk(event.getBlockPlaced().getChunk()) >= tuning.maxManagedPerChunk()) {
-            event.setCancelled(true);
-            event.getPlayer().sendMessage(miniMessage.deserialize(
-                "<!italic><#FF6B6B>This chunk has reached the managed spawner safety limit.</#FF6B6B>"
-            ));
-            return;
-        }
-
         final int tier = Math.min(tuning.maxTier(), spawnerItemService.readSpawnerTier(event.getItemInHand()));
         final ManagedSpawner record = ManagedSpawner.placed(
             event.getBlockPlaced().getWorld().getUID(),
-            event.getBlockPlaced().getX(),
-            event.getBlockPlaced().getY(),
-            event.getBlockPlaced().getZ(),
-            type,
-            event.getPlayer().getUniqueId(),
-            tier,
-            tuning.defaultAccess()
-        );
+            event.getBlockPlaced().getX(), event.getBlockPlaced().getY(), event.getBlockPlaced().getZ(),
+            type, event.getPlayer().getUniqueId(), tier, tuning.defaultAccess());
+
+        final ManagedSpawner stackTarget = stackSettings.enabled()
+            ? registry.findAutoStackTarget(event.getBlockPlaced().getLocation(), record, stackSettings)
+            : null;
+        if (stackTarget == null
+            && registry.countInChunk(event.getBlockPlaced().getChunk()) >= tuning.maxManagedPerChunk()) {
+            event.setCancelled(true);
+            event.getPlayer().sendMessage(miniMessage.deserialize(
+                "<!italic><#FF6B6B>This chunk has reached the managed spawner safety limit.</#FF6B6B>"));
+            return;
+        }
+
         if (!stateService.apply(spawner, record, tuning.tier(tier))) {
             event.setCancelled(true);
             return;
@@ -102,22 +110,40 @@ public final class SpawnerPlaceListener implements Listener {
             return;
         }
         final ManagedSpawner pending = pendingPlacements.remove(PlacementKey.of(event));
-        if (event.isCancelled()) {
+        if (event.isCancelled() || pending == null) {
             return;
         }
-
         final EntityType type = spawnerItemService.readSpawnerType(event.getItemInHand());
         if (type == null) {
             return;
         }
+        if (!(event.getBlockPlaced().getState() instanceof CreatureSpawner finalState)
+            || !stateService.isManaged(finalState)) {
+            return;
+        }
 
-        if (pending != null) {
-            if (!(event.getBlockPlaced().getState() instanceof CreatureSpawner finalState)
-                || !stateService.isManaged(finalState)) {
-                return;
+        ManagedSpawner finalRecord = pending;
+        final ManagedSpawner target = registry.findAutoStackTarget(event.getBlockPlaced().getLocation(), pending, stackSettings);
+        if (target != null) {
+            final NativeStackPolicy.MergeResult merge = NativeStackPolicy.merge(
+                target.stackAmount(), 1, stackSettings.maxStackSize());
+            if (merge.mergedAmount() == 1) {
+                final ManagedSpawner updated = registry.updateStackAmount(target.id(), merge.targetAmount());
+                if (updated != null && applyPhysical(updated)) {
+                    event.getBlockPlaced().setType(Material.AIR, false);
+                    finalRecord = updated;
+                    redstoneLocks.refresh(updated);
+                    displays.refresh(updated);
+                } else if (updated != null) {
+                    registry.updateStackAmount(target.id(), target.stackAmount());
+                }
             }
+        }
+
+        if (finalRecord.id().equals(pending.id())) {
             registry.register(pending);
             redstoneLocks.refresh(pending);
+            displays.refresh(pending);
         }
         counters.managedPlacementSuccess();
 
@@ -126,23 +152,23 @@ public final class SpawnerPlaceListener implements Listener {
         }
         final String transactionId = UUID.randomUUID().toString();
         Bukkit.getPluginManager().callEvent(new PlexonSpawnerPlacedEvent(
-            event.getPlayer(),
-            type,
-            event.getBlockPlaced().getLocation(),
-            event.getItemInHand(),
-            transactionId + ":placed",
-            transactionId
-        ));
+            event.getPlayer(), type, event.getBlockPlaced().getLocation(), event.getItemInHand(),
+            transactionId + ":placed", transactionId));
+    }
+
+    private boolean applyPhysical(final ManagedSpawner record) {
+        final org.bukkit.World world = Bukkit.getWorld(record.worldId());
+        if (world == null || !world.isChunkLoaded(record.x() >> 4, record.z() >> 4)) {
+            return false;
+        }
+        final Location location = new Location(world, record.x(), record.y(), record.z());
+        return stateService.applyAt(location, record, tuning.tier(record.tier()));
     }
 
     private record PlacementKey(UUID worldId, int x, int y, int z) {
         private static PlacementKey of(final BlockPlaceEvent event) {
-            return new PlacementKey(
-                event.getBlockPlaced().getWorld().getUID(),
-                event.getBlockPlaced().getX(),
-                event.getBlockPlaced().getY(),
-                event.getBlockPlaced().getZ()
-            );
+            return new PlacementKey(event.getBlockPlaced().getWorld().getUID(),
+                event.getBlockPlaced().getX(), event.getBlockPlaced().getY(), event.getBlockPlaced().getZ());
         }
     }
 }

@@ -1,53 +1,105 @@
 # ============================================================================
-# PlexonSpawners 3.2.0-rc.1 - Main Configuration
+# PlexonSpawners 3.3.0 - Main Configuration
 # Paper 26.2 / Java 25 / PlexonCore 2.0.4
 # ============================================================================
-# High-frequency listeners read compiled runtime snapshots only. Managed-spawner
-# persistence is coalesced by one shared coordinator and never writes once per
-# placement, break or spawned entity.
-#
-# WildStacker integration is automatic when WildStacker is installed and its
-# public API is available. Managed spawner output stays stack-aware; there is no
-# separate PlexonSpawners toggle required to enable WildStacker's own stacking.
+# PlexonSpawners owns logical spawner stacking. WildStacker remains optional and
+# supported for entity/mob stacking only. Disable WildStacker spawner stacking and
+# spawner upgrades after the one-time migration has been verified.
 # ============================================================================
 
-config-version: 7
+config-version: 8
 
 managed:
-  # Enables the persistent managed-spawner product layer.
   enabled: true
 
-  # One shared persistence coordinator flushes dirty snapshots at this cadence.
-  # Range: 20-12000 ticks.
+  # One shared dirty-state persistence coordinator; no per-spawner disk tasks.
   persistence-interval-ticks: 100
 
-  # Bounded chunk-indexed lookup radius used to attribute SPAWNER spawn events.
+  # Bounded chunk-indexed lookup used for managed spawn provenance.
   provenance-search-radius: 8
 
-  # Safety bound for individually managed physical spawner blocks in one chunk.
-  # WildStacker stacks still represent one physical managed location.
+  # Physical managed-spawner block safety bound. Native logical stack amount does
+  # not count as additional physical records.
   max-managed-per-chunk: 64
 
-  # Logical nearby-population guard. This is deliberately separate from each
-  # tier's native max-nearby-entities value.
   nearby-stack-cap:
     enabled: true
-    # Axis-aligned nearby query radius in blocks. Range: 1.0-32.0.
     radius: 8.0
-    # Logical population, including WildStacker stack amounts. Range: 1-1000000.
     maximum-amount: 99
-    # When true, only the managed spawner's entity type contributes to the cap.
     same-type-only: true
 
-  # Freeze managed spawners while the spawner block is receiving direct or
-  # indirect redstone power. The live spawn countdown is preserved in memory and
-  # resumes from the same value when power is removed.
   redstone-lock:
     enabled: true
-    # One shared reconciliation task checks only managed spawners in loaded chunks.
-    # Redstone/block events and spawn-time gates provide immediate safety as well.
-    # Range: 1-200 ticks.
     poll-interval-ticks: 20
+
+  stacking:
+    enabled: true
+    max-stack-size: 64
+
+    auto-stack:
+      enabled: true
+      vertical:
+        enabled: true
+        range: 8
+      nearby:
+        enabled: false
+        radius: 1
+
+    compatibility:
+      require-same-entity-type: true
+      require-same-owner: true
+      require-same-tier: true
+      require-same-access-mode: true
+
+    display:
+      enabled: true
+      # User-facing switch: true means no floating stacked-spawner title.
+      hide-title: false
+      hide-single: true
+      format: '<yellow>%entity% Spawner</yellow> <gray>x%amount%</gray>'
+      show-tier: true
+      tier-format: ' <dark_gray>•</dark_gray> <gray>%tier%</gray>'
+      view-distance: 16.0
+      vertical-offset: 1.25
+
+    breaking:
+      normal-break:
+        mode: ONE
+      sneak-break:
+        mode: ALL
+      require-owner: true
+
+    withdraw:
+      enabled: true
+      presets:
+        - 1
+        - 8
+        - 16
+
+    spawning:
+      scale-with-stack: true
+      mode: BOUNDED_LINEAR
+      max-logical-output-per-cycle: 64
+      respect-nearby-logical-cap: true
+      # Used only when WildStacker entity stacking is unavailable.
+      vanilla-physical-output-cap: 16
+
+    items:
+      show-stack-amount: true
+      hide-single-amount: true
+
+    creative:
+      consume-on-place: false
+      drop-on-break: false
+
+    explosions:
+      protect-managed-stacks: true
+
+    migration:
+      wildstacker:
+        enabled: true
+        auto-import: true
+        warn-if-spawner-stacking-still-enabled: true
 
   # OWNER_ONLY -> owner/admin inspect/manage/break
   # PUBLIC_USE -> everyone may inspect; owner/admin manage/break

@@ -11,7 +11,7 @@ import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SpawnerStateService {
-    private static final int STATE_SCHEMA = 1;
+    public static final int STATE_SCHEMA = 2;
 
     private final NamespacedKey markerKey;
     private final NamespacedKey schemaKey;
@@ -20,6 +20,8 @@ public final class SpawnerStateService {
     private final NamespacedKey tierKey;
     private final NamespacedKey accessKey;
     private final NamespacedKey placedAtKey;
+    private final NamespacedKey stackAmountKey;
+    private final NamespacedKey migrationStateKey;
 
     public SpawnerStateService(final JavaPlugin plugin) {
         markerKey = new NamespacedKey(plugin, "managed_instance");
@@ -29,6 +31,8 @@ public final class SpawnerStateService {
         tierKey = new NamespacedKey(plugin, "managed_tier");
         accessKey = new NamespacedKey(plugin, "managed_access");
         placedAtKey = new NamespacedKey(plugin, "managed_placed_at");
+        stackAmountKey = new NamespacedKey(plugin, "managed_stack_amount");
+        migrationStateKey = new NamespacedKey(plugin, "managed_stack_migration");
     }
 
     public boolean apply(final CreatureSpawner spawner, final ManagedSpawner record, final SpawnerTier tier) {
@@ -51,6 +55,8 @@ public final class SpawnerStateService {
         pdc.set(tierKey, PersistentDataType.INTEGER, record.tier());
         pdc.set(accessKey, PersistentDataType.STRING, record.access().name());
         pdc.set(placedAtKey, PersistentDataType.LONG, record.placedAtEpochMillis());
+        pdc.set(stackAmountKey, PersistentDataType.INTEGER, record.stackAmount());
+        pdc.set(migrationStateKey, PersistentDataType.STRING, record.migrationState().name());
         return spawner.update(true, false);
     }
 
@@ -70,7 +76,7 @@ public final class SpawnerStateService {
         final PersistentDataContainer pdc = spawner.getPersistentDataContainer();
         final Integer marker = pdc.get(markerKey, PersistentDataType.INTEGER);
         final Integer schema = pdc.get(schemaKey, PersistentDataType.INTEGER);
-        if (marker == null || marker != 1 || schema == null || schema != STATE_SCHEMA) {
+        if (marker == null || marker != 1 || schema == null || schema < 1 || schema > STATE_SCHEMA) {
             return null;
         }
 
@@ -84,19 +90,32 @@ public final class SpawnerStateService {
             return null;
         }
 
+        final int stackAmount;
+        final SpawnerMigrationState migrationState;
+        if (schema >= 2) {
+            final Integer storedStack = pdc.get(stackAmountKey, PersistentDataType.INTEGER);
+            final String rawMigration = pdc.get(migrationStateKey, PersistentDataType.STRING);
+            if (storedStack == null || storedStack < 1 || rawMigration == null) {
+                return null;
+            }
+            stackAmount = storedStack;
+            try {
+                migrationState = SpawnerMigrationState.valueOf(rawMigration.toUpperCase(Locale.ROOT));
+            } catch (final IllegalArgumentException exception) {
+                return null;
+            }
+        } else {
+            stackAmount = 1;
+            migrationState = SpawnerMigrationState.PENDING;
+        }
+
         try {
             return new ManagedSpawner(
-                UUID.fromString(rawId),
-                spawner.getWorld().getUID(),
-                spawner.getX(),
-                spawner.getY(),
-                spawner.getZ(),
-                type,
-                UUID.fromString(rawOwner),
-                tier,
+                UUID.fromString(rawId), spawner.getWorld().getUID(), spawner.getX(), spawner.getY(), spawner.getZ(),
+                type, UUID.fromString(rawOwner), tier,
                 SpawnerAccess.valueOf(rawAccess.toUpperCase(Locale.ROOT)),
                 placedAt == null ? System.currentTimeMillis() : placedAt,
-                0L
+                0L, stackAmount, migrationState
             );
         } catch (final IllegalArgumentException exception) {
             return null;

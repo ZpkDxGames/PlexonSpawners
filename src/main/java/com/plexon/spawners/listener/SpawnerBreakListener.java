@@ -1,6 +1,7 @@
 package com.plexon.spawners.listener;
 
 import com.plexon.spawners.compat.WildStackerCompat;
+import com.plexon.spawners.config.NativeStackSettings;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent;
@@ -9,7 +10,9 @@ import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.managed.ManagedSpawner;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.SpawnerStackDisplayService;
 import com.plexon.spawners.managed.SpawnerStateService;
+import com.plexon.spawners.managed.SpawnerTuning;
 import com.plexon.spawners.message.MessageService;
 import java.util.Map;
 import java.util.UUID;
@@ -33,6 +36,7 @@ import org.bukkit.inventory.ItemStack;
 
 public final class SpawnerBreakListener implements Listener {
     private final PluginSettings settings;
+    private final NativeStackSettings stackSettings;
     private final EssenceService essenceService;
     private final SpawnerItemService spawnerItemService;
     private final MessageService messages;
@@ -40,19 +44,25 @@ public final class SpawnerBreakListener implements Listener {
     private final PerformanceCounters counters;
     private final ManagedSpawnerRegistry registry;
     private final SpawnerStateService stateService;
+    private final SpawnerTuning tuning;
+    private final SpawnerStackDisplayService displays;
     private final MiniMessage miniMessage = MiniMessage.miniMessage();
 
     public SpawnerBreakListener(
         final PluginSettings settings,
+        final NativeStackSettings stackSettings,
         final EssenceService essenceService,
         final SpawnerItemService spawnerItemService,
         final MessageService messages,
         final WildStackerCompat wildStackerCompat,
         final PerformanceCounters counters,
         final ManagedSpawnerRegistry registry,
-        final SpawnerStateService stateService
+        final SpawnerStateService stateService,
+        final SpawnerTuning tuning,
+        final SpawnerStackDisplayService displays
     ) {
         this.settings = settings;
+        this.stackSettings = stackSettings;
         this.essenceService = essenceService;
         this.spawnerItemService = spawnerItemService;
         this.messages = messages;
@@ -60,6 +70,8 @@ public final class SpawnerBreakListener implements Listener {
         this.counters = counters;
         this.registry = registry;
         this.stateService = stateService;
+        this.tuning = tuning;
+        this.displays = displays;
     }
 
     @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
@@ -98,37 +110,93 @@ public final class SpawnerBreakListener implements Listener {
             if (!managed.access().canBreak(player.getUniqueId(), managed.ownerId(), administrator)) {
                 event.setCancelled(true);
                 player.sendMessage(miniMessage.deserialize(
-                    "<!italic><#FF6B6B>You do not have permission to break this managed spawner.</#FF6B6B>"
-                ));
+                    "<!italic><#FF6B6B>You do not have permission to break this managed spawner.</#FF6B6B>"));
+                return;
+            }
+            if (stackSettings.enabled()) {
+                handleNativeManagedBreak(event, player, spawner, managed);
                 return;
             }
         }
 
+        handleLegacyProviderBreak(event, player, spawner, managed);
+    }
+
+    private void handleNativeManagedBreak(
+        final BlockBreakEvent event,
+        final Player player,
+        final CreatureSpawner spawner,
+        final ManagedSpawner managed
+    ) {
+        if (managed.migrationState().blocksMutation()) {
+            event.setCancelled(true);
+            player.sendMessage(miniMessage.deserialize(
+                "<!italic><#FFB86C>This spawner is awaiting safe stack migration; mutation is blocked.</#FFB86C>"));
+            return;
+        }
+
+        final Qualification qualification = qualification(player);
+        final int logicalAmount = managed.stackAmount();
+        final boolean removeAll = player.isSneaking() ? stackSettings.sneakBreakAll() : stackSettings.normalBreakAll();
+        final int removedAmount = removeAll ? logicalAmount : 1;
+        final int remaining = logicalAmount - removedAmount;
+        final int experience = settings.dropExperience() ? Math.max(0, event.getExpToDrop()) : 0;
+
+        event.setCancelled(true);
+        event.setDropItems(false);
+        event.setExpToDrop(0);
+
+        if (remaining > 0) {
+            final ManagedSpawner updated = registry.updateStackAmount(managed.id(), remaining);
+            if (updated == null || !stateService.apply(spawner, updated, tuning.tier(updated.tier()))) {
+                if (updated != null) {
+                    registry.updateStackAmount(managed.id(), logicalAmount);
+                }
+                player.sendMessage(miniMessage.deserialize(
+                    "<!italic><#FF6B6B>The stack could not be updated safely; nothing was removed.</#FF6B6B>"));
+                return;
+            }
+            displays.refresh(updated);
+        } else {
+            displays.remove(managed);
+            registry.remove(managed.id());
+            event.getBlock().setType(Material.AIR, false);
+        }
+
+        damageTool(player);
+        awardExperience(event, experience);
+        if (player.getGameMode() == GameMode.CREATIVE && !stackSettings.creativeDropOnBreak()) {
+            return;
+        }
+        handleOutcome(event, player, managed.type(), managed.tier(), qualification,
+            false, removedAmount);
+    }
+
+    private void handleLegacyProviderBreak(
+        final BlockBreakEvent event,
+        final Player player,
+        final CreatureSpawner spawner,
+        final ManagedSpawner managed
+    ) {
         EntityType entityType = managed == null ? spawner.getSpawnedType() : managed.type();
         if (entityType == EntityType.UNKNOWN) {
             event.setCancelled(true);
             player.sendMessage(miniMessage.deserialize(
-                "<!italic><#FF6B6B>This spawner has an invalid UNKNOWN entity type; the break was cancelled to preserve it.</#FF6B6B>"
-            ));
+                "<!italic><#FF6B6B>This spawner has an invalid UNKNOWN entity type; the break was cancelled to preserve it.</#FF6B6B>"));
             return;
         }
         if (entityType == null) {
             entityType = EntityType.PIG;
         }
         final int recoveredTier = managed == null ? 1 : managed.tier();
-
-        final ItemStack tool = player.getInventory().getItemInMainHand();
-        final int silkLevel = tool.getEnchantmentLevel(Enchantment.SILK_TOUCH);
-        final int requiredLevel = settings.requiredSilkTouchLevel();
-        final boolean needsBypassCheck = requiredLevel > 0
-            && silkLevel < requiredLevel
-            && settings.silkBypassPermissionEnabled();
-        final boolean hasExplicitBypass = needsBypassCheck && player.hasPermission("plexonspawners.bypass.silk");
-        final boolean usedBypass = hasExplicitBypass;
-        final boolean qualified = requiredLevel <= 0 || silkLevel >= requiredLevel || hasExplicitBypass;
+        final Qualification qualification = qualification(player);
 
         if (!settings.takeOwnership()) {
-            handleLegacyOutcome(event, player, entityType, recoveredTier, silkLevel, usedBypass, qualified);
+            event.setDropItems(false);
+            if (!settings.dropExperience()) {
+                event.setExpToDrop(0);
+            }
+            handleOutcome(event, player, entityType, recoveredTier, qualification, false, 1);
             return;
         }
 
@@ -141,109 +209,58 @@ public final class SpawnerBreakListener implements Listener {
             case CANCELLED -> counters.wildStackerCancelled();
             case UNAVAILABLE -> counters.wildStackerDegraded();
         }
-        if (stackResult == WildStackerCompat.Result.UNAVAILABLE
-            || stackResult == WildStackerCompat.Result.CANCELLED) {
+        if (stackResult == WildStackerCompat.Result.UNAVAILABLE || stackResult == WildStackerCompat.Result.CANCELLED) {
             return;
         }
 
         event.setCancelled(true);
         event.setDropItems(false);
         event.setExpToDrop(0);
-
-        if (stackResult == WildStackerCompat.Result.NOT_INSTALLED
-            || stackResult == WildStackerCompat.Result.NOT_STACKED) {
+        if (stackResult == WildStackerCompat.Result.NOT_INSTALLED || stackResult == WildStackerCompat.Result.NOT_STACKED) {
             event.getBlock().setType(Material.AIR, false);
             if (managed != null) {
+                displays.remove(managed);
                 registry.remove(managed.id());
             }
         }
-
         damageTool(player);
-        if (experience > 0) {
-            final Location xpLocation = blockLocation.clone().add(0.5, 0.5, 0.5);
-            final ExperienceOrb orb = event.getBlock().getWorld().spawn(xpLocation, ExperienceOrb.class);
-            orb.setExperience(experience);
-        }
-
+        awardExperience(event, experience);
         if (player.getGameMode() == GameMode.CREATIVE && !settings.creativeDrops()) {
             return;
         }
-
-        handleManagedOutcome(
-            event,
-            player,
-            entityType,
-            recoveredTier,
-            silkLevel,
-            usedBypass,
-            stackResult == WildStackerCompat.Result.SUCCESS,
-            qualified
-        );
+        handleOutcome(event, player, entityType, recoveredTier, qualification,
+            stackResult == WildStackerCompat.Result.SUCCESS, 1);
     }
 
-    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
-    public void onLegacySpawnerBreakCommit(final BlockBreakEvent event) {
-        if (settings.takeOwnership() || event.getBlock().getType() != Material.SPAWNER) {
-            return;
-        }
-        final ManagedSpawner managed = registry.find(event.getBlock().getLocation());
-        if (managed != null) {
-            registry.remove(managed.id());
-        }
+    private Qualification qualification(final Player player) {
+        final ItemStack tool = player.getInventory().getItemInMainHand();
+        final int silkLevel = tool.getEnchantmentLevel(Enchantment.SILK_TOUCH);
+        final int requiredLevel = settings.requiredSilkTouchLevel();
+        final boolean needsBypass = requiredLevel > 0 && silkLevel < requiredLevel && settings.silkBypassPermissionEnabled();
+        final boolean usedBypass = needsBypass && player.hasPermission("plexonspawners.bypass.silk");
+        final boolean qualified = requiredLevel <= 0 || silkLevel >= requiredLevel || usedBypass;
+        return new Qualification(silkLevel, usedBypass, qualified);
     }
 
-    private void handleLegacyOutcome(
+    private void handleOutcome(
         final BlockBreakEvent event,
         final Player player,
         final EntityType entityType,
         final int recoveredTier,
-        final int silkLevel,
-        final boolean usedBypass,
-        final boolean qualified
-    ) {
-        if (!settings.shouldHandleCreative(player.getGameMode())) {
-            event.setDropItems(false);
-            event.setExpToDrop(0);
-            return;
-        }
-        event.setDropItems(false);
-        if (!settings.dropExperience()) {
-            event.setExpToDrop(0);
-        }
-        handleManagedOutcome(event, player, entityType, recoveredTier, silkLevel, usedBypass, false, qualified);
-    }
-
-    private void handleManagedOutcome(
-        final BlockBreakEvent event,
-        final Player player,
-        final EntityType entityType,
-        final int recoveredTier,
-        final int silkLevel,
-        final boolean usedBypass,
+        final Qualification qualification,
         final boolean wildStackerManaged,
-        final boolean qualified
+        final int recoveredAmount
     ) {
-        if (qualified) {
+        if (qualification.qualified()) {
             if (!settings.dropSpawnerWhenQualified()) {
                 return;
             }
-
             final Location sourceLocation = event.getBlock().getLocation();
-            event.getBlock().getWorld().dropItemNaturally(
-                sourceLocation,
-                spawnerItemService.createSpawner(entityType, 1, recoveredTier)
-            );
+            deliverSpawnerItems(player, sourceLocation, entityType, recoveredTier, recoveredAmount);
             counters.qualifiedRecovery();
             final String transactionId = newTransactionId();
-            fireRecoveredEvent(
-                player,
-                entityType,
-                sourceLocation,
-                silkLevel,
-                usedBypass,
-                wildStackerManaged,
-                transactionId
-            );
+            fireRecoveredEvent(player, entityType, recoveredAmount, sourceLocation,
+                qualification.silkLevel(), qualification.usedBypass(), wildStackerManaged, transactionId);
             if (settings.breakSuccessMessages()) {
                 messages.send(player, "spawner-recovered", Map.of("mob", SpawnerItemService.pretty(entityType)));
             }
@@ -253,13 +270,11 @@ public final class SpawnerBreakListener implements Listener {
         if (!settings.essenceEnabled()) {
             return;
         }
-
         final PluginSettings.EssenceRule rule = settings.essenceRule(entityType);
         counters.essenceRoll();
         if (!passesChance(rule.chance())) {
             return;
         }
-
         final Location sourceLocation = event.getBlock().getLocation();
         deliverEssence(player, sourceLocation, rule.amount());
         counters.essenceWin();
@@ -271,9 +286,22 @@ public final class SpawnerBreakListener implements Listener {
         }
     }
 
+    private void deliverSpawnerItems(
+        final Player player,
+        final Location sourceLocation,
+        final EntityType type,
+        final int tier,
+        final int amount
+    ) {
+        final ItemStack[] stacks = spawnerItemService.createSpawnerStacks(type, amount, tier);
+        player.getInventory().addItem(stacks).values().forEach(leftover ->
+            sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover));
+    }
+
     private void fireRecoveredEvent(
         final Player player,
         final EntityType entityType,
+        final int amount,
         final Location sourceLocation,
         final int silkLevel,
         final boolean usedBypass,
@@ -282,16 +310,8 @@ public final class SpawnerBreakListener implements Listener {
     ) {
         requirePrimaryThread();
         Bukkit.getPluginManager().callEvent(new PlexonSpawnerRecoveredEvent(
-            player,
-            entityType,
-            1,
-            sourceLocation,
-            silkLevel,
-            usedBypass,
-            wildStackerManaged,
-            transactionId + ":recovered",
-            transactionId
-        ));
+            player, entityType, amount, sourceLocation, silkLevel, usedBypass, wildStackerManaged,
+            transactionId + ":recovered", transactionId));
     }
 
     private void fireEssenceEvent(
@@ -307,14 +327,17 @@ public final class SpawnerBreakListener implements Listener {
                 ? PlexonSpawnerEssenceAwardedEvent.DeliveryMode.INVENTORY
                 : PlexonSpawnerEssenceAwardedEvent.DeliveryMode.GROUND;
         Bukkit.getPluginManager().callEvent(new PlexonSpawnerEssenceAwardedEvent(
-            player,
-            entityType,
-            amount,
-            deliveryMode,
-            sourceLocation,
-            transactionId + ":essence",
-            transactionId
-        ));
+            player, entityType, amount, deliveryMode, sourceLocation,
+            transactionId + ":essence", transactionId));
+    }
+
+    private static void awardExperience(final BlockBreakEvent event, final int experience) {
+        if (experience <= 0) {
+            return;
+        }
+        final Location xpLocation = event.getBlock().getLocation().clone().add(0.5, 0.5, 0.5);
+        final ExperienceOrb orb = event.getBlock().getWorld().spawn(xpLocation, ExperienceOrb.class);
+        orb.setExperience(experience);
     }
 
     private static void requirePrimaryThread() {
@@ -353,14 +376,13 @@ public final class SpawnerBreakListener implements Listener {
             leftovers.values().forEach(leftover -> sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover));
             return;
         }
-
         counters.essenceGroundEntitiesCreated(stacks.length);
         for (final ItemStack stack : stacks) {
             sourceLocation.getWorld().dropItemNaturally(sourceLocation, stack);
         }
     }
 
-    private static String newTransactionId() {
-        return UUID.randomUUID().toString();
-    }
+    private static String newTransactionId() { return UUID.randomUUID().toString(); }
+
+    private record Qualification(int silkLevel, boolean usedBypass, boolean qualified) {}
 }

@@ -2,6 +2,8 @@ package com.plexon.spawners.listener;
 
 import com.plexon.spawners.managed.ManagedSpawner;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.SpawnerMigrationService;
+import com.plexon.spawners.managed.SpawnerStackDisplayService;
 import com.plexon.spawners.managed.SpawnerStateService;
 import com.plexon.spawners.managed.SpawnerTuning;
 import org.bukkit.Bukkit;
@@ -18,15 +20,21 @@ public final class SpawnerChunkListener implements Listener {
     private final ManagedSpawnerRegistry registry;
     private final SpawnerStateService stateService;
     private final SpawnerTuning tuning;
+    private final SpawnerMigrationService migrationService;
+    private final SpawnerStackDisplayService displayService;
 
     public SpawnerChunkListener(
         final ManagedSpawnerRegistry registry,
         final SpawnerStateService stateService,
-        final SpawnerTuning tuning
+        final SpawnerTuning tuning,
+        final SpawnerMigrationService migrationService,
+        final SpawnerStackDisplayService displayService
     ) {
         this.registry = registry;
         this.stateService = stateService;
         this.tuning = tuning;
+        this.migrationService = migrationService;
+        this.displayService = displayService;
     }
 
     @EventHandler(priority = EventPriority.MONITOR)
@@ -57,22 +65,25 @@ public final class SpawnerChunkListener implements Listener {
         final Location location = new Location(world, record.x(), record.y(), record.z());
         if (location.getBlock().getType() != Material.SPAWNER
             || !(location.getBlock().getState() instanceof CreatureSpawner spawner)) {
+            displayService.remove(record);
             registry.remove(record.id());
             return;
         }
-
         if (!stateService.isManaged(spawner)) {
+            displayService.remove(record);
             registry.remove(record.id());
             return;
         }
-
         final ManagedSpawner physical = stateService.recover(spawner);
         if (!samePhysicalIdentity(record, physical)) {
+            displayService.remove(record);
             registry.remove(record.id());
             return;
         }
 
         stateService.apply(spawner, record, tuning.tier(record.tier()));
+        final ManagedSpawner migrated = migrationService.reconcile(record, world);
+        displayService.refresh(migrated == null ? record : migrated);
     }
 
     static boolean samePhysicalIdentity(final ManagedSpawner expected, final ManagedSpawner physical) {

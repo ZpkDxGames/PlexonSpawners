@@ -36,7 +36,7 @@ public final class SpawnerItemService {
         "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
         "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>"
     );
-    private static final int CURRENT_SCHEMA = 2;
+    public static final int CURRENT_SCHEMA = 2;
     private static final int MIN_SUPPORTED_SCHEMA = 1;
     private static final Map<EntityType, String> DISPLAY_NAMES = buildDisplayNames();
 
@@ -51,6 +51,8 @@ public final class SpawnerItemService {
 
     private String nameTemplate;
     private List<String> loreTemplate;
+    private boolean showStackAmount;
+    private boolean hideSingleAmount;
 
     public SpawnerItemService(final JavaPlugin plugin) {
         this.plugin = plugin;
@@ -67,6 +69,8 @@ public final class SpawnerItemService {
         loreTemplate = config.contains("spawner-item.lore")
             ? List.copyOf(config.getStringList("spawner-item.lore"))
             : DEFAULT_LORE;
+        showStackAmount = config.getBoolean("managed.stacking.items.show-stack-amount", true);
+        hideSingleAmount = config.getBoolean("managed.stacking.items.hide-single-amount", true);
         templateCache.clear();
     }
 
@@ -78,13 +82,27 @@ public final class SpawnerItemService {
         final NamespacedKey entityKey = requireManagedEntityKey(entityType);
         final int safeTier = Math.max(1, tier);
         final TemplateKey key = new TemplateKey(entityType, safeTier);
-        final ItemStack template = templateCache.computeIfAbsent(
-            key,
-            ignored -> createTemplate(entityType, entityKey, safeTier)
-        );
+        final ItemStack template = templateCache.computeIfAbsent(key,
+            ignored -> createTemplate(entityType, entityKey, safeTier));
         final ItemStack item = template.clone();
-        item.setAmount(Math.max(1, Math.min(item.getMaxStackSize(), amount)));
+        final int physicalAmount = Math.max(1, Math.min(item.getMaxStackSize(), amount));
+        item.setAmount(physicalAmount);
+        applyAmountLore(item, physicalAmount);
         return item;
+    }
+
+    public ItemStack[] createSpawnerStacks(final EntityType entityType, final int totalAmount, final int tier) {
+        if (totalAmount < 1) {
+            return new ItemStack[0];
+        }
+        final List<ItemStack> stacks = new ArrayList<>((totalAmount + 63) / 64);
+        int remaining = totalAmount;
+        while (remaining > 0) {
+            final int amount = Math.min(64, remaining);
+            stacks.add(createSpawner(entityType, amount, tier));
+            remaining -= amount;
+        }
+        return stacks.toArray(ItemStack[]::new);
     }
 
     public boolean isManagedSpawner(final ItemStack item) {
@@ -100,10 +118,7 @@ public final class SpawnerItemService {
             return null;
         }
         final String key = pdc.get(typeKey, PersistentDataType.STRING);
-        if (key == null || key.isBlank()) {
-            return null;
-        }
-        return entityByKey.get(key.toLowerCase(Locale.ROOT));
+        return key == null || key.isBlank() ? null : entityByKey.get(key.toLowerCase(Locale.ROOT));
     }
 
     public int readSpawnerTier(final ItemStack item) {
@@ -119,13 +134,8 @@ public final class SpawnerItemService {
         return tier == null ? 1 : Math.max(1, tier);
     }
 
-    public int templateCacheSize() {
-        return templateCache.size();
-    }
-
-    public int entityKeyLookupSize() {
-        return entityByKey.size();
-    }
+    public int templateCacheSize() { return templateCache.size(); }
+    public int entityKeyLookupSize() { return entityByKey.size(); }
 
     public static String pretty(final EntityType type) {
         return DISPLAY_NAMES.getOrDefault(type, type.name());
@@ -152,13 +162,11 @@ public final class SpawnerItemService {
         if (!(rawMeta instanceof BlockStateMeta meta)) {
             throw new IllegalStateException("SPAWNER item did not expose BlockStateMeta");
         }
-
         final BlockState blockState = meta.getBlockState();
         if (blockState instanceof CreatureSpawner creatureSpawner) {
             creatureSpawner.setSpawnedType(entityType);
             meta.setBlockState(creatureSpawner);
         }
-
         final PersistentDataContainer pdc = meta.getPersistentDataContainer();
         pdc.set(managedKey, PersistentDataType.INTEGER, 1);
         pdc.set(typeKey, PersistentDataType.STRING, entityKey.asString());
@@ -167,7 +175,6 @@ public final class SpawnerItemService {
 
         final String display = pretty(entityType);
         meta.displayName(miniMessage.deserialize(resolve(nameTemplate, display, tier)));
-
         final List<Component> lore = new ArrayList<>(loreTemplate.size());
         for (final String line : loreTemplate) {
             lore.add(miniMessage.deserialize(resolve(line, display, tier)));
@@ -175,6 +182,19 @@ public final class SpawnerItemService {
         meta.lore(lore);
         item.setItemMeta(meta);
         return item;
+    }
+
+    private void applyAmountLore(final ItemStack item, final int amount) {
+        if (!showStackAmount || (hideSingleAmount && amount == 1)) {
+            return;
+        }
+        final ItemMeta meta = item.getItemMeta();
+        final List<Component> lore = meta.lore() == null ? new ArrayList<>() : new ArrayList<>(meta.lore());
+        lore.add(lore.isEmpty() ? Component.empty() : Component.empty());
+        lore.add(miniMessage.deserialize(
+            "<!italic><#4B5563>› <#8B95A7>Amount</#8B95A7> <#FFD866>x" + amount + "</#FFD866>"));
+        meta.lore(lore);
+        item.setItemMeta(meta);
     }
 
     private static String resolve(final String input, final String display, final int tier) {

@@ -1,5 +1,6 @@
 package com.plexon.spawners.managed;
 
+import com.plexon.spawners.config.NativeStackSettings;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -26,7 +27,9 @@ import org.bukkit.entity.EntityType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class ManagedSpawnerRegistry implements AutoCloseable {
-    private static final String HEADER = "PLEXON_SPAWNERS_DB|1";
+    public static final int PERSISTENCE_SCHEMA = 2;
+    private static final String HEADER_V1 = "PLEXON_SPAWNERS_DB|1";
+    private static final String HEADER_V2 = "PLEXON_SPAWNERS_DB|2";
 
     private final JavaPlugin plugin;
     private final Path databasePath;
@@ -53,7 +56,6 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         if (!Files.exists(databasePath)) {
             return;
         }
-
         final List<String> lines;
         try {
             lines = Files.readAllLines(databasePath, StandardCharsets.UTF_8);
@@ -63,8 +65,14 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         if (lines.isEmpty()) {
             throw new IllegalStateException("managed-spawners.db is empty; refusing a silent data reset");
         }
-        if (!HEADER.equals(lines.getFirst().trim())) {
-            throw new IllegalStateException("Unsupported managed-spawners.db schema header: " + lines.getFirst());
+        final String header = lines.getFirst().trim();
+        final int schema;
+        if (HEADER_V2.equals(header)) {
+            schema = 2;
+        } else if (HEADER_V1.equals(header)) {
+            schema = 1;
+        } else {
+            throw new IllegalStateException("Unsupported managed-spawners.db schema header: " + header);
         }
 
         int loaded = 0;
@@ -75,19 +83,22 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
                 continue;
             }
             try {
-                final ManagedSpawner record = decode(raw);
-                putLoaded(record);
+                putLoaded(decode(raw, schema));
                 loaded++;
             } catch (final RuntimeException exception) {
                 rejected++;
-                plugin.getLogger().log(
-                    Level.WARNING,
-                    "Skipping corrupt managed-spawner record at line " + (lineNumber + 1) + ": " + exception.getMessage()
-                );
+                plugin.getLogger().log(Level.WARNING,
+                    "Skipping corrupt managed-spawner record at line " + (lineNumber + 1) + ": " + exception.getMessage());
             }
         }
-        revision.set(0L);
-        persistedRevision.set(0L);
+        if (schema < PERSISTENCE_SCHEMA) {
+            revision.set(1L);
+            persistedRevision.set(0L);
+            plugin.getLogger().info("Loaded managed-spawners.db schema 1; records will be upgraded to schema 2 without changing logical counts.");
+        } else {
+            revision.set(0L);
+            persistedRevision.set(0L);
+        }
         plugin.getLogger().info("Loaded " + loaded + " managed spawners" + (rejected == 0 ? "." : "; rejected " + rejected + " corrupt records."));
     }
 
@@ -99,15 +110,8 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         final SpawnerAccess access
     ) {
         final ManagedSpawner record = ManagedSpawner.placed(
-            location.getWorld().getUID(),
-            location.getBlockX(),
-            location.getBlockY(),
-            location.getBlockZ(),
-            type,
-            ownerId,
-            tier,
-            access
-        );
+            location.getWorld().getUID(), location.getBlockX(), location.getBlockY(), location.getBlockZ(),
+            type, ownerId, tier, access);
         register(record);
         return record;
     }
@@ -119,9 +123,9 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
             final ManagedSpawner displaced = byId.remove(previousAtBlock);
             if (displaced != null) {
                 removeFromChunkIndex(displaced);
+                plugin.getLogger().warning("Replaced duplicate managed-spawner ownership at " + blockKey + "; retained " + record.id());
             }
         }
-
         final ManagedSpawner previousById = byId.put(record.id(), record);
         if (previousById != null && !BlockKey.of(previousById).equals(blockKey)) {
             byBlock.remove(BlockKey.of(previousById), record.id());
@@ -171,12 +175,48 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         return update(id, current -> current.withAccess(access));
     }
 
+    public ManagedSpawner updateStackAmount(final UUID id, final int amount) {
+        if (amount < 1 || amount > NativeStackSettings.HARD_MAX_STACK_SIZE) {
+            throw new IllegalArgumentException("stack amount outside supported range: " + amount);
+        }
+        return update(id, current -> current.withStackAmount(amount));
+    }
+
+    public ManagedSpawner updateMigrationState(final UUID id, final SpawnerMigrationState state) {
+        return update(id, current -> current.withMigrationState(state));
+    }
+
+    public ManagedSpawner updateStackAndMigration(
+        final UUID id,
+        final int amount,
+        final SpawnerMigrationState state
+    ) {
+        if (amount < 1 || amount > NativeStackSettings.HARD_MAX_STACK_SIZE) {
+            throw new IllegalArgumentException("stack amount outside supported range: " + amount);
+        }
+        return update(id, current -> current.withStackAndMigration(amount, state));
+    }
+
     public ManagedSpawner incrementSpawnCount(final UUID id) {
         return update(id, current -> current.withLifetimeSpawns(current.lifetimeSpawns() + 1L));
     }
 
-    public int size() {
-        return byId.size();
+    public int size() { return byId.size(); }
+
+    public long totalLogicalAmount() {
+        return byId.values().stream().mapToLong(ManagedSpawner::stackAmount).sum();
+    }
+
+    public int nativeStackCount() {
+        return (int) byId.values().stream().filter(record -> record.stackAmount() > 1).count();
+    }
+
+    public int largestStack() {
+        return byId.values().stream().mapToInt(ManagedSpawner::stackAmount).max().orElse(0);
+    }
+
+    public long migrationConflictCount() {
+        return byId.values().stream().filter(record -> record.migrationState() == SpawnerMigrationState.CONFLICT).count();
     }
 
     public int countInChunk(final Chunk chunk) {
@@ -200,18 +240,22 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
     }
 
     public ManagedSpawner nearest(final Location location, final EntityType type, final int radius) {
+        return nearby(location, radius).stream()
+            .filter(record -> record.type() == type)
+            .min(Comparator.comparingDouble(record -> squaredDistance(location, record)))
+            .orElse(null);
+    }
+
+    public List<ManagedSpawner> nearby(final Location location, final int radius) {
         final World world = location.getWorld();
         if (world == null || radius < 1) {
-            return null;
+            return List.of();
         }
         final int minChunkX = (location.getBlockX() - radius) >> 4;
         final int maxChunkX = (location.getBlockX() + radius) >> 4;
         final int minChunkZ = (location.getBlockZ() - radius) >> 4;
         final int maxChunkZ = (location.getBlockZ() + radius) >> 4;
-        final double radiusSquared = (double) radius * radius;
-        ManagedSpawner nearest = null;
-        double nearestDistance = Double.MAX_VALUE;
-
+        final List<ManagedSpawner> records = new ArrayList<>();
         for (int chunkX = minChunkX; chunkX <= maxChunkX; chunkX++) {
             for (int chunkZ = minChunkZ; chunkZ <= maxChunkZ; chunkZ++) {
                 final Set<UUID> ids = byChunk.get(new ChunkKey(world.getUID(), chunkX, chunkZ));
@@ -220,21 +264,38 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
                 }
                 for (final UUID id : ids) {
                     final ManagedSpawner record = byId.get(id);
-                    if (record == null || record.type() != type) {
-                        continue;
-                    }
-                    final double dx = location.getX() - (record.x() + 0.5D);
-                    final double dy = location.getY() - (record.y() + 0.5D);
-                    final double dz = location.getZ() - (record.z() + 0.5D);
-                    final double distance = dx * dx + dy * dy + dz * dz;
-                    if (distance <= radiusSquared && distance < nearestDistance) {
-                        nearest = record;
-                        nearestDistance = distance;
+                    if (record != null) {
+                        records.add(record);
                     }
                 }
             }
         }
-        return nearest;
+        return List.copyOf(records);
+    }
+
+    public ManagedSpawner findAutoStackTarget(
+        final Location placedLocation,
+        final ManagedSpawner incoming,
+        final NativeStackSettings settings
+    ) {
+        if (!settings.enabled() || !settings.autoStackEnabled()) {
+            return null;
+        }
+        final int searchRadius = Math.max(settings.verticalRange(), settings.nearbyEnabled() ? settings.nearbyRadius() : 1);
+        return nearby(placedLocation, searchRadius).stream()
+            .filter(candidate -> !candidate.id().equals(incoming.id()))
+            .filter(candidate -> candidate.stackAmount() < settings.maxStackSize())
+            .filter(candidate -> !candidate.migrationState().blocksMutation())
+            .filter(candidate -> NativeStackPolicy.compatible(candidate, incoming,
+                settings.requireSameEntityType(), settings.requireSameOwner(), settings.requireSameTier(), settings.requireSameAccess()))
+            .filter(candidate -> eligibleGeometry(placedLocation, candidate, settings))
+            .min(Comparator
+                .comparingInt((ManagedSpawner candidate) -> verticalAligned(placedLocation, candidate) ? 0 : 1)
+                .thenComparingDouble(candidate -> squaredDistance(placedLocation, candidate))
+                .thenComparingInt(ManagedSpawner::y)
+                .thenComparingInt(ManagedSpawner::x)
+                .thenComparingInt(ManagedSpawner::z))
+            .orElse(null);
     }
 
     public List<ManagedSpawner> snapshot() {
@@ -253,14 +314,12 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         if (!writerRunning.compareAndSet(false, true)) {
             return;
         }
-
         writer.execute(() -> {
             boolean failed = false;
             try {
                 while (!closed) {
                     final long targetRevision = revision.get();
-                    final List<ManagedSpawner> records = snapshot();
-                    writeSnapshot(records);
+                    writeSnapshot(snapshot());
                     persistedRevision.set(targetRevision);
                     if (revision.get() == targetRevision) {
                         break;
@@ -268,7 +327,8 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
                 }
             } catch (final IOException exception) {
                 failed = true;
-                plugin.getLogger().log(Level.SEVERE, "Could not persist managed spawners; in-memory state remains authoritative for this runtime.", exception);
+                plugin.getLogger().log(Level.SEVERE,
+                    "Could not persist managed spawners; in-memory state remains authoritative for this runtime.", exception);
             } finally {
                 writerRunning.set(false);
                 if (!failed && !closed && revision.get() > persistedRevision.get()) {
@@ -276,6 +336,17 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
                 }
             }
         });
+    }
+
+    /** Synchronous durability barrier used only for cross-plugin migration ownership handoff. */
+    public synchronized void flushSync() {
+        try {
+            final long target = revision.get();
+            writeSnapshot(snapshot());
+            persistedRevision.set(target);
+        } catch (final IOException exception) {
+            throw new IllegalStateException("Could not durably persist managed-spawner migration state", exception);
+        }
     }
 
     @Override
@@ -293,7 +364,6 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
             Thread.currentThread().interrupt();
             writer.shutdownNow();
         }
-
         if (revision.get() > persistedRevision.get()) {
             try {
                 writeSnapshot(snapshot());
@@ -332,9 +402,7 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         addToChunkIndex(record);
     }
 
-    private void markDirty() {
-        revision.incrementAndGet();
-    }
+    private void markDirty() { revision.incrementAndGet(); }
 
     private void addToChunkIndex(final ManagedSpawner record) {
         byChunk.computeIfAbsent(ChunkKey.of(record), ignored -> ConcurrentHashMap.newKeySet()).add(record.id());
@@ -352,11 +420,11 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
         }
     }
 
-    private void writeSnapshot(final List<ManagedSpawner> records) throws IOException {
+    private synchronized void writeSnapshot(final List<ManagedSpawner> records) throws IOException {
         Files.createDirectories(databasePath.getParent());
         final Path temp = databasePath.resolveSibling(databasePath.getFileName() + ".tmp");
         final List<String> lines = new ArrayList<>(records.size() + 1);
-        lines.add(HEADER);
+        lines.add(HEADER_V2);
         for (final ManagedSpawner record : records) {
             lines.add(encode(record));
         }
@@ -370,46 +438,71 @@ public final class ManagedSpawnerRegistry implements AutoCloseable {
 
     private static String encode(final ManagedSpawner record) {
         return String.join("|",
-            "R",
-            record.id().toString(),
-            record.worldId().toString(),
-            Integer.toString(record.x()),
-            Integer.toString(record.y()),
-            Integer.toString(record.z()),
-            record.type().name(),
-            record.ownerId().toString(),
-            Integer.toString(record.tier()),
-            record.access().name(),
-            Long.toString(record.placedAtEpochMillis()),
-            Long.toString(record.lifetimeSpawns())
-        );
+            "R", record.id().toString(), record.worldId().toString(),
+            Integer.toString(record.x()), Integer.toString(record.y()), Integer.toString(record.z()),
+            record.type().name(), record.ownerId().toString(), Integer.toString(record.tier()), record.access().name(),
+            Long.toString(record.placedAtEpochMillis()), Long.toString(record.lifetimeSpawns()),
+            Integer.toString(record.stackAmount()), record.migrationState().name());
     }
 
-    private static ManagedSpawner decode(final String raw) {
+    private static ManagedSpawner decode(final String raw, final int schema) {
         final String[] fields = raw.split("\\|", -1);
-        if (fields.length != 12 || !"R".equals(fields[0])) {
-            throw new IllegalArgumentException("invalid record shape");
+        if (!"R".equals(fields[0])) {
+            throw new IllegalArgumentException("invalid record marker");
+        }
+        if (schema == 1) {
+            if (fields.length != 12) {
+                throw new IllegalArgumentException("invalid schema-1 record shape");
+            }
+            return new ManagedSpawner(
+                UUID.fromString(fields[1]), UUID.fromString(fields[2]),
+                Integer.parseInt(fields[3]), Integer.parseInt(fields[4]), Integer.parseInt(fields[5]),
+                EntityType.valueOf(fields[6]), UUID.fromString(fields[7]), Integer.parseInt(fields[8]),
+                SpawnerAccess.valueOf(fields[9]), Long.parseLong(fields[10]), Long.parseLong(fields[11]),
+                1, SpawnerMigrationState.PENDING);
+        }
+        if (fields.length != 14) {
+            throw new IllegalArgumentException("invalid schema-2 record shape");
         }
         return new ManagedSpawner(
-            UUID.fromString(fields[1]),
-            UUID.fromString(fields[2]),
-            Integer.parseInt(fields[3]),
-            Integer.parseInt(fields[4]),
-            Integer.parseInt(fields[5]),
-            EntityType.valueOf(fields[6]),
-            UUID.fromString(fields[7]),
-            Integer.parseInt(fields[8]),
-            SpawnerAccess.valueOf(fields[9]),
-            Long.parseLong(fields[10]),
-            Long.parseLong(fields[11])
-        );
+            UUID.fromString(fields[1]), UUID.fromString(fields[2]),
+            Integer.parseInt(fields[3]), Integer.parseInt(fields[4]), Integer.parseInt(fields[5]),
+            EntityType.valueOf(fields[6]), UUID.fromString(fields[7]), Integer.parseInt(fields[8]),
+            SpawnerAccess.valueOf(fields[9]), Long.parseLong(fields[10]), Long.parseLong(fields[11]),
+            Integer.parseInt(fields[12]), SpawnerMigrationState.valueOf(fields[13]));
+    }
+
+    private static boolean eligibleGeometry(
+        final Location source,
+        final ManagedSpawner candidate,
+        final NativeStackSettings settings
+    ) {
+        if (verticalAligned(source, candidate)) {
+            return settings.verticalEnabled() && Math.abs(source.getBlockY() - candidate.y()) <= settings.verticalRange();
+        }
+        if (!settings.nearbyEnabled()) {
+            return false;
+        }
+        final double radius = settings.nearbyRadius();
+        return squaredDistance(source, candidate) <= radius * radius;
+    }
+
+    private static boolean verticalAligned(final Location source, final ManagedSpawner candidate) {
+        return source.getBlockX() == candidate.x() && source.getBlockZ() == candidate.z()
+            && source.getBlockY() != candidate.y();
+    }
+
+    private static double squaredDistance(final Location location, final ManagedSpawner record) {
+        final double dx = location.getX() - (record.x() + 0.5D);
+        final double dy = location.getY() - (record.y() + 0.5D);
+        final double dz = location.getZ() - (record.z() + 0.5D);
+        return dx * dx + dy * dy + dz * dz;
     }
 
     private record BlockKey(UUID worldId, int x, int y, int z) {
         private static BlockKey of(final Location location) {
             return new BlockKey(location.getWorld().getUID(), location.getBlockX(), location.getBlockY(), location.getBlockZ());
         }
-
         private static BlockKey of(final ManagedSpawner record) {
             return new BlockKey(record.worldId(), record.x(), record.y(), record.z());
         }

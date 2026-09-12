@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.2.0-rc.1"
+version = "3.3.0"
 
 val pluginVersion = version.toString()
 
@@ -70,7 +70,7 @@ tasks.jar {
 
 val verifyDistribution = tasks.register("verifyDistribution") {
     group = "verification"
-    description = "Checks the PlexonSpawners distribution contract and Core isolation."
+    description = "Checks the PlexonSpawners 3.3 distribution contract and dependency isolation."
     dependsOn(tasks.jar)
     doLast {
         val archive = tasks.jar.get().archiveFile.get().asFile
@@ -83,22 +83,26 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "config.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
                 "com/plexon/spawners/api/PlexonSpawnersApi.class",
-                "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",
-                "com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class",
-                "com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class",
-                "com/plexon/spawners/integration/core/CoreBridge.class",
                 "com/plexon/spawners/compat/WildStackerCompat.class",
+                "com/plexon/spawners/config/NativeStackSettings.class",
                 "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
-                "com/plexon/spawners/managed/SpawnerOriginService.class",
-                "com/plexon/spawners/managed/NearbyStackCapPolicy.class",
+                "com/plexon/spawners/managed/NativeStackPolicy.class",
+                "com/plexon/spawners/managed/SpawnerMigrationState.class",
+                "com/plexon/spawners/managed/SpawnerMigrationService.class",
+                "com/plexon/spawners/managed/SpawnerStackDisplayService.class",
+                "com/plexon/spawners/managed/SpawnerStateService.class",
                 "com/plexon/spawners/managed/RedstoneSpawnerLockService.class",
-                "com/plexon/spawners/config/NearbyStackCapSettings.class",
-                "com/plexon/spawners/config/RedstoneLockSettings.class",
                 "com/plexon/spawners/listener/NearbyStackCapListener.class",
-                "com/plexon/spawners/gui/SpawnerControlGui.class"
+                "com/plexon/spawners/listener/SpawnerChunkListener.class",
+                "com/plexon/spawners/listener/SpawnerProtectionListener.class",
+                "com/plexon/spawners/gui/SpawnerControlGui.class",
+                "com/plexon/spawners/gui/SpawnerWithdrawGuiHolder.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
             require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {
                 "PlexonCore runtime classes must not be shaded into PlexonSpawners"
+            }
+            require(zip.entries().asSequence().none { it.name.startsWith("com/bgsoftware/wildstacker/") }) {
+                "WildStacker runtime classes must not be shaded into PlexonSpawners"
             }
         }
     }
