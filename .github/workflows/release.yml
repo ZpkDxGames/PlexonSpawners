@@ -13,9 +13,9 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  BASELINE_STABLE_TAG: 'v3.1.0'
-  BASELINE_STABLE_SHA: '8aaf1b7078edf5e9076af02035d204e123b3958a'
-  BASELINE_STABLE_JAR_SHA256: '00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65'
+  BASELINE_STABLE_TAG: 'v3.1.1'
+  BASELINE_STABLE_SHA: 'e9c50532ba0c227153ddb69f70a073e04d326a01'
+  BASELINE_STABLE_JAR_SHA256: '5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c'
   CORE_VERSION: '2.0.4'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
-          test -n "$VERSION"
+          test "$VERSION" = '3.3.0'
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RELEASE_TAG=v${VERSION}" >> "$GITHUB_ENV"
 
@@ -66,6 +66,7 @@ jobs:
           grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
           grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
           test -s ".release/RELEASE_NOTES_${VERSION}.md"
+          test -s 'docs/MIGRATION_3_3.md'
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             echo "$RELEASE_TAG already exists; refusing to move a stable tag." >&2
             exit 1
@@ -117,23 +118,40 @@ jobs:
             config.yml \
             com/plexon/spawners/PlexonSpawners.class \
             com/plexon/spawners/api/PlexonSpawnersApi.class \
+            com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class \
+            com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class \
+            com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class \
             com/plexon/spawners/compat/WildStackerCompat.class \
+            com/plexon/spawners/config/NativeStackSettings.class \
             com/plexon/spawners/config/NearbyStackCapSettings.class \
+            com/plexon/spawners/config/RedstoneLockSettings.class \
+            com/plexon/spawners/managed/ManagedSpawner.class \
             com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
+            com/plexon/spawners/managed/NativeStackPolicy.class \
+            com/plexon/spawners/managed/SpawnerMigrationState.class \
+            com/plexon/spawners/managed/SpawnerMigrationService.class \
+            com/plexon/spawners/managed/SpawnerStackDisplayService.class \
             com/plexon/spawners/managed/SpawnerStateService.class \
             com/plexon/spawners/managed/SpawnerOriginService.class \
             com/plexon/spawners/managed/NearbyStackCapPolicy.class \
+            com/plexon/spawners/managed/RedstoneSpawnerLockService.class \
             com/plexon/spawners/listener/NearbyStackCapListener.class \
             com/plexon/spawners/listener/SpawnerChunkListener.class \
-            com/plexon/spawners/gui/SpawnerControlGui.class; do
+            com/plexon/spawners/listener/SpawnerProtectionListener.class \
+            com/plexon/spawners/gui/SpawnerControlGui.class \
+            com/plexon/spawners/gui/SpawnerWithdrawGuiHolder.class; do
             grep -qx "$required" build/release-evidence/jar-contents.txt
           done
           unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
           unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
-          unzip -p "$JAR" config.yml | grep -F 'config-version: 6'
+          unzip -p "$JAR" config.yml | grep -F 'config-version: 8'
           javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
           if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
             echo 'PlexonCore runtime classes must not be shaded.' >&2
+            exit 1
+          fi
+          if grep -q '^com/bgsoftware/wildstacker/' build/release-evidence/jar-contents.txt; then
+            echo 'WildStacker runtime classes must not be shaded.' >&2
             exit 1
           fi
           (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
@@ -145,33 +163,50 @@ jobs:
           JAR="build/libs/PlexonSpawners-${VERSION}.jar"
           digest="$(sha256sum "$JAR" | awk '{print $1}')"
           size="$(stat -c%s "$JAR")"
+          summary="$(cat build/release-evidence/TEST_SUMMARY.txt)"
+          tests="$(sed -E 's/^TEST_COUNT=([0-9]+).*/\1/' <<< "$summary")"
+          failures="$(sed -E 's/.*FAILURES=([0-9]+).*/\1/' <<< "$summary")"
+          errors="$(sed -E 's/.*ERRORS=([0-9]+).*/\1/' <<< "$summary")"
+          skipped="$(sed -E 's/.*SKIPPED=([0-9]+).*/\1/' <<< "$summary")"
           cat > build/release-evidence/PROVENANCE.txt <<EOF
           repository=$GITHUB_REPOSITORY
-          source_sha=$GITHUB_SHA
           version=$VERSION
+          source_sha=$GITHUB_SHA
           java=25
           java_major=69
           paper=26.2.build.121-stable
           plexoncore=$CORE_VERSION
           plexoncore_sha256=$CORE_SHA256
-          config_schema=6
-          config_defaults_materialized=PASS
-          managed_persistence_schema=1
+          config_schema=8
+          managed_persistence_schema=2
+          managed_physical_pdc_schema=2
           managed_item_schema=2
-          nearby_stack_cap_default_radius=8.0
-          nearby_stack_cap_default_maximum=99
-          wildstacker_logical_counting=PASS
-          wildstacker_direct_stack_guard=PASS
-          wildstacker_degradation_unhook=PASS
+          native_spawner_stacking=PASS
+          vertical_auto_stack=PASS
+          native_stack_persistence=PASS
+          stack_break_one=PASS
+          stack_break_all=PASS
+          stack_withdraw=PASS
+          tier_preservation=PASS
+          tier_stack_pricing=PASS
+          bounded_stack_spawn_scaling=PASS
+          nearby_logical_cap=PASS
+          wildstacker_entity_integration=PASS
+          wildstacker_spawner_migration=PASS
+          redstone_stack_lock=PASS
+          runtime_status_live_refresh=PASS
+          stack_title_display=PASS
+          stack_title_hide_config=PASS
+          config_defaults_materialized=PASS
           stable_baseline_tag=$BASELINE_STABLE_TAG
           stable_baseline_sha=$BASELINE_STABLE_SHA
           stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
+          tests=$tests
+          failures=$failures
+          errors=$errors
+          skipped=$skipped
           jar_size=$size
           jar_sha256=$digest
-          unknown_entity_guard=PASS
-          managed_identity_reconciliation=PASS
-          essence_upgrade_rollback=PASS
-          bounded_persistence_writer=PASS
           github_source_certification=PASS
           runtime_certification=NOT_EXECUTED
           EOF
@@ -225,24 +260,36 @@ jobs:
           grep -Fx "repository=$GITHUB_REPOSITORY" published/PROVENANCE.txt
           grep -Fx "source_sha=$GITHUB_SHA" published/PROVENANCE.txt
           grep -Fx "version=$VERSION" published/PROVENANCE.txt
-          grep -Fx 'config_schema=6' published/PROVENANCE.txt
-          grep -Fx 'config_defaults_materialized=PASS' published/PROVENANCE.txt
-          grep -Fx 'managed_persistence_schema=1' published/PROVENANCE.txt
+          grep -Fx 'config_schema=8' published/PROVENANCE.txt
+          grep -Fx 'managed_persistence_schema=2' published/PROVENANCE.txt
+          grep -Fx 'managed_physical_pdc_schema=2' published/PROVENANCE.txt
           grep -Fx 'managed_item_schema=2' published/PROVENANCE.txt
-          grep -Fx 'nearby_stack_cap_default_radius=8.0' published/PROVENANCE.txt
-          grep -Fx 'nearby_stack_cap_default_maximum=99' published/PROVENANCE.txt
-          grep -Fx 'wildstacker_logical_counting=PASS' published/PROVENANCE.txt
-          grep -Fx 'wildstacker_direct_stack_guard=PASS' published/PROVENANCE.txt
-          grep -Fx 'wildstacker_degradation_unhook=PASS' published/PROVENANCE.txt
+          grep -Fx 'native_spawner_stacking=PASS' published/PROVENANCE.txt
+          grep -Fx 'vertical_auto_stack=PASS' published/PROVENANCE.txt
+          grep -Fx 'native_stack_persistence=PASS' published/PROVENANCE.txt
+          grep -Fx 'stack_break_one=PASS' published/PROVENANCE.txt
+          grep -Fx 'stack_break_all=PASS' published/PROVENANCE.txt
+          grep -Fx 'stack_withdraw=PASS' published/PROVENANCE.txt
+          grep -Fx 'tier_preservation=PASS' published/PROVENANCE.txt
+          grep -Fx 'tier_stack_pricing=PASS' published/PROVENANCE.txt
+          grep -Fx 'bounded_stack_spawn_scaling=PASS' published/PROVENANCE.txt
+          grep -Fx 'nearby_logical_cap=PASS' published/PROVENANCE.txt
+          grep -Fx 'wildstacker_entity_integration=PASS' published/PROVENANCE.txt
+          grep -Fx 'wildstacker_spawner_migration=PASS' published/PROVENANCE.txt
+          grep -Fx 'redstone_stack_lock=PASS' published/PROVENANCE.txt
+          grep -Fx 'runtime_status_live_refresh=PASS' published/PROVENANCE.txt
+          grep -Fx 'stack_title_display=PASS' published/PROVENANCE.txt
+          grep -Fx 'stack_title_hide_config=PASS' published/PROVENANCE.txt
+          grep -Fx 'config_defaults_materialized=PASS' published/PROVENANCE.txt
           grep -Fx "stable_baseline_tag=$BASELINE_STABLE_TAG" published/PROVENANCE.txt
           grep -Fx "stable_baseline_sha=$BASELINE_STABLE_SHA" published/PROVENANCE.txt
           grep -Fx "stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256" published/PROVENANCE.txt
-          grep -Fx 'unknown_entity_guard=PASS' published/PROVENANCE.txt
-          grep -Fx 'managed_identity_reconciliation=PASS' published/PROVENANCE.txt
-          grep -Fx 'essence_upgrade_rollback=PASS' published/PROVENANCE.txt
-          grep -Fx 'bounded_persistence_writer=PASS' published/PROVENANCE.txt
           grep -Fx 'github_source_certification=PASS' published/PROVENANCE.txt
           grep -Fx 'runtime_certification=NOT_EXECUTED' published/PROVENANCE.txt
+          grep -Eq '^tests=[1-9][0-9]*$' published/PROVENANCE.txt
+          grep -Fx 'failures=0' published/PROVENANCE.txt
+          grep -Fx 'errors=0' published/PROVENANCE.txt
+          grep -Fx 'skipped=0' published/PROVENANCE.txt
           grep -Eq '^TEST_COUNT=[1-9][0-9]* FAILURES=0 ERRORS=0 SKIPPED=0$' published/TEST_SUMMARY.txt
 
       - name: Upload release verification evidence

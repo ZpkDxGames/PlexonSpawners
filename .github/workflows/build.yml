@@ -49,6 +49,7 @@ jobs:
           set -euo pipefail
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
           test -n "$VERSION"
+          test "$VERSION" = '3.3.0'
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
           grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
           grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
@@ -97,25 +98,40 @@ jobs:
             config.yml \
             com/plexon/spawners/PlexonSpawners.class \
             com/plexon/spawners/api/PlexonSpawnersApi.class \
+            com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class \
+            com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class \
+            com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class \
             com/plexon/spawners/compat/WildStackerCompat.class \
+            com/plexon/spawners/config/NativeStackSettings.class \
             com/plexon/spawners/config/NearbyStackCapSettings.class \
             com/plexon/spawners/config/RedstoneLockSettings.class \
+            com/plexon/spawners/managed/ManagedSpawner.class \
             com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
+            com/plexon/spawners/managed/NativeStackPolicy.class \
+            com/plexon/spawners/managed/SpawnerMigrationState.class \
+            com/plexon/spawners/managed/SpawnerMigrationService.class \
+            com/plexon/spawners/managed/SpawnerStackDisplayService.class \
             com/plexon/spawners/managed/SpawnerStateService.class \
             com/plexon/spawners/managed/SpawnerOriginService.class \
             com/plexon/spawners/managed/NearbyStackCapPolicy.class \
             com/plexon/spawners/managed/RedstoneSpawnerLockService.class \
             com/plexon/spawners/listener/NearbyStackCapListener.class \
             com/plexon/spawners/listener/SpawnerChunkListener.class \
-            com/plexon/spawners/gui/SpawnerControlGui.class; do
+            com/plexon/spawners/listener/SpawnerProtectionListener.class \
+            com/plexon/spawners/gui/SpawnerControlGui.class \
+            com/plexon/spawners/gui/SpawnerWithdrawGuiHolder.class; do
             grep -qx "$required" build/release-evidence/jar-contents.txt
           done
           unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
           unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
-          unzip -p "$JAR" config.yml | grep -F 'config-version: 7'
+          unzip -p "$JAR" config.yml | grep -F 'config-version: 8'
           javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
           if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
             echo 'PlexonCore runtime classes must not be shaded.' >&2
+            exit 1
+          fi
+          if grep -q '^com/bgsoftware/wildstacker/' build/release-evidence/jar-contents.txt; then
+            echo 'WildStacker runtime classes must not be shaded.' >&2
             exit 1
           fi
           (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
@@ -127,37 +143,51 @@ jobs:
           JAR="build/libs/PlexonSpawners-${VERSION}.jar"
           digest="$(sha256sum "$JAR" | awk '{print $1}')"
           size="$(stat -c%s "$JAR")"
+          summary="$(cat build/release-evidence/TEST_SUMMARY.txt)"
+          tests="$(sed -E 's/^TEST_COUNT=([0-9]+).*/\1/' <<< "$summary")"
+          failures="$(sed -E 's/.*FAILURES=([0-9]+).*/\1/' <<< "$summary")"
+          errors="$(sed -E 's/.*ERRORS=([0-9]+).*/\1/' <<< "$summary")"
+          skipped="$(sed -E 's/.*SKIPPED=([0-9]+).*/\1/' <<< "$summary")"
           cat > build/release-evidence/PROVENANCE.txt <<EOF
           repository=$GITHUB_REPOSITORY
-          source_sha=$GITHUB_SHA
           version=$VERSION
+          source_sha=$GITHUB_SHA
           java=25
           java_major=69
           paper=26.2.build.121-stable
           plexoncore=$CORE_VERSION
           plexoncore_sha256=$CORE_SHA256
-          config_schema=7
-          config_defaults_materialized=PASS
-          managed_persistence_schema=1
+          config_schema=8
+          managed_persistence_schema=2
+          managed_physical_pdc_schema=2
           managed_item_schema=2
-          nearby_stack_cap_default_radius=8.0
-          nearby_stack_cap_default_maximum=99
-          wildstacker_logical_counting=PASS
-          wildstacker_direct_stack_guard=PASS
-          wildstacker_pending_stack_resize=PASS
-          wildstacker_degradation_unhook=PASS
-          redstone_lock_countdown_freeze=PASS
-          redstone_lock_pdc_recovery=PASS
-          runtime_status_gui=PASS
+          native_spawner_stacking=PASS
+          vertical_auto_stack=PASS
+          native_stack_persistence=PASS
+          stack_break_one=PASS
+          stack_break_all=PASS
+          stack_withdraw=PASS
+          tier_preservation=PASS
+          tier_stack_pricing=PASS
+          bounded_stack_spawn_scaling=PASS
+          nearby_logical_cap=PASS
+          wildstacker_entity_integration=PASS
+          wildstacker_spawner_migration=PASS
+          redstone_stack_lock=PASS
+          runtime_status_live_refresh=PASS
+          stack_title_display=PASS
+          stack_title_hide_config=PASS
+          config_defaults_materialized=PASS
           stable_baseline_tag=$BASELINE_STABLE_TAG
           stable_baseline_sha=$BASELINE_STABLE_SHA
           stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
+          tests=$tests
+          failures=$failures
+          errors=$errors
+          skipped=$skipped
           jar_size=$size
           jar_sha256=$digest
-          unknown_entity_guard=PASS
-          managed_identity_reconciliation=PASS
-          essence_upgrade_rollback=PASS
-          bounded_persistence_writer=PASS
+          github_source_certification=PASS
           runtime_certification=NOT_EXECUTED
           EOF
 
