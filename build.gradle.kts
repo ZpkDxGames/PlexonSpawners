@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.3.0"
+version = "3.4.0"
 
 val pluginVersion = version.toString()
 
@@ -70,7 +70,7 @@ tasks.jar {
 
 val verifyDistribution = tasks.register("verifyDistribution") {
     group = "verification"
-    description = "Checks the PlexonSpawners 3.3 distribution contract and dependency isolation."
+    description = "Checks the PlexonSpawners 3.4 distribution contract and dependency isolation."
     dependsOn(tasks.jar)
     doLast {
         val archive = tasks.jar.get().archiveFile.get().asFile
@@ -83,8 +83,12 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "config.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
                 "com/plexon/spawners/api/PlexonSpawnersApi.class",
+                "com/plexon/spawners/compat/EntityStackBackend.class",
+                "com/plexon/spawners/compat/PhysicalFallbackBackend.class",
                 "com/plexon/spawners/compat/WildStackerCompat.class",
                 "com/plexon/spawners/config/NativeStackSettings.class",
+                "com/plexon/spawners/item/EssenceRewardPolicy.class",
+                "com/plexon/spawners/managed/ManagedSpawnAggregationService.class",
                 "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
                 "com/plexon/spawners/managed/NativeStackPolicy.class",
                 "com/plexon/spawners/managed/SpawnerMigrationState.class",

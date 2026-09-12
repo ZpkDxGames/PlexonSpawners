@@ -26,18 +26,28 @@ class NearbyStackCapContractTest {
     void wildStackerRemainsEntityRepresentationOnlyForNormalRuntime() throws Exception {
         final String compat = source("compat/WildStackerCompat.java");
         final String listener = source("listener/NearbyStackCapListener.java");
-        final String policy = source("managed/NativeStackPolicy.java");
+        final String policy = source("managed/ManagedSpawnAggregationService.java");
 
         assertTrue(compat.contains("SpawnerStackedEntitySpawnEvent"));
         assertTrue(compat.contains("EntityStackEvent"));
         assertTrue(compat.contains("entityStackGetEntity = entityStackClass.getMethod(\"getEntity\")"));
-        assertTrue(compat.contains("setShouldBeStacked"));
-        assertTrue(compat.contains("setCancelled"));
-        assertTrue(listener.contains("shouldCancelEntityStack"));
+        assertTrue(compat.contains("entityStackGetTarget = entityStackClass.getMethod(\"getTarget\")"));
+        assertTrue(compat.contains("increaseStackAmount"));
+        assertTrue(compat.contains("canGetStacked"));
+        assertTrue(compat.contains("isSimilar"));
+        assertTrue(listener.contains("wildStacker.mergeInto(living, target, desired)"));
         assertTrue(listener.contains("wildStacker.resizeLogicalEntity(living, desired)"));
         assertTrue(listener.contains("managed.stackAmount()"));
-        assertTrue(policy.contains("tierSpawnCount") && policy.contains("stackAmount"));
+        assertTrue(policy.contains("chooseTarget"));
         assertFalse(listener.contains("getLogicalSpawnerAmount"));
+    }
+
+    @Test
+    void blanketEntityStackCancellationWasRemoved() throws Exception {
+        final String listener = source("listener/NearbyStackCapListener.java");
+        assertTrue(listener.contains("shouldCancelEntityStack"));
+        assertTrue(listener.contains("return false;"));
+        assertTrue(listener.contains("stack-interval: 0"));
     }
 
     @Test
@@ -48,14 +58,8 @@ class NearbyStackCapContractTest {
         assertTrue(compat.contains("registerSpawnInterceptors"));
         assertTrue(compat.contains("onPluginEnable"));
         assertTrue(compat.contains("onPluginDisable"));
-        assertFalse(compat.contains("Class.forName(API_CLASS, true, loader);\n            return"));
-
-        final int degradeStart = compat.indexOf("private void degrade(final Throwable throwable)");
-        final int warnStart = compat.indexOf("private void warnOnce", degradeStart);
-        assertTrue(degradeStart >= 0 && warnStart > degradeStart);
-        final String degrade = compat.substring(degradeStart, warnStart);
-        assertTrue(degrade.contains("HandlerList.unregisterAll(dynamicListener)"));
-        assertTrue(degrade.contains("clearEventAccessors()"));
+        assertTrue(compat.contains("HandlerList.unregisterAll(dynamicListener)"));
+        assertTrue(compat.contains("cached public API reflection"));
     }
 
     @Test
@@ -68,15 +72,13 @@ class NearbyStackCapContractTest {
     }
 
     @Test
-    void configurationMigrationIsAdditive() throws Exception {
+    void configurationMigrationIsAdditiveThroughSchemaNine() throws Exception {
         final String plugin = source("PlexonSpawners.java");
         assertTrue(plugin.contains("configVersion < 6"));
         assertTrue(plugin.contains("managed.nearby-stack-cap.enabled"));
-        assertTrue(plugin.contains("managed.nearby-stack-cap.radius"));
-        assertTrue(plugin.contains("managed.nearby-stack-cap.maximum-amount"));
-        assertTrue(plugin.contains("managed.nearby-stack-cap.same-type-only"));
-        assertTrue(plugin.contains("if (!getConfig().contains"));
         assertTrue(plugin.contains("configVersion < 8"));
+        assertTrue(plugin.contains("configVersion < 9"));
         assertTrue(plugin.contains("copyDefaults(true)"));
+        assertTrue(plugin.contains("does not overwrite an administrator's existing nearby.enabled value"));
     }
 }

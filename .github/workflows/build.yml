@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 env:
-  BASELINE_STABLE_TAG: 'v3.1.1'
-  BASELINE_STABLE_SHA: 'e9c50532ba0c227153ddb69f70a073e04d326a01'
-  BASELINE_STABLE_JAR_SHA256: '5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c'
+  BASELINE_STABLE_TAG: 'v3.3.0'
+  BASELINE_STABLE_SHA: '737bc629d95da3acafd74c679a9d1b13a4d772db'
+  BASELINE_STABLE_JAR_SHA256: '60a6af1b9db3bfb786122cf02cc3e9b8178548b6ee745e832b0140fb3304bdf5'
   CORE_VERSION: '2.0.4'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
@@ -49,7 +49,7 @@ jobs:
           set -euo pipefail
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
           test -n "$VERSION"
-          test "$VERSION" = '3.3.0'
+          test "$VERSION" = '3.4.0'
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
           grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
           grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
@@ -101,10 +101,14 @@ jobs:
             com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class \
             com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class \
             com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class \
+            com/plexon/spawners/compat/EntityStackBackend.class \
+            com/plexon/spawners/compat/PhysicalFallbackBackend.class \
             com/plexon/spawners/compat/WildStackerCompat.class \
             com/plexon/spawners/config/NativeStackSettings.class \
             com/plexon/spawners/config/NearbyStackCapSettings.class \
             com/plexon/spawners/config/RedstoneLockSettings.class \
+            com/plexon/spawners/item/EssenceRewardPolicy.class \
+            com/plexon/spawners/managed/ManagedSpawnAggregationService.class \
             com/plexon/spawners/managed/ManagedSpawner.class \
             com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
             com/plexon/spawners/managed/NativeStackPolicy.class \
@@ -124,7 +128,7 @@ jobs:
           done
           unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
           unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
-          unzip -p "$JAR" config.yml | grep -F 'config-version: 8'
+          unzip -p "$JAR" config.yml | grep -F 'config-version: 9'
           javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
           if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
             echo 'PlexonCore runtime classes must not be shaded.' >&2
@@ -157,27 +161,24 @@ jobs:
           paper=26.2.build.121-stable
           plexoncore=$CORE_VERSION
           plexoncore_sha256=$CORE_SHA256
-          config_schema=8
+          config_schema=9
           managed_persistence_schema=2
           managed_physical_pdc_schema=2
           managed_item_schema=2
-          native_spawner_stacking=PASS
-          vertical_auto_stack=PASS
+          adjacent_spawner_stacking=PASS
+          vertical_spawner_stacking=PASS
           native_stack_persistence=PASS
-          stack_break_one=PASS
-          stack_break_all=PASS
-          stack_withdraw=PASS
-          tier_preservation=PASS
-          tier_stack_pricing=PASS
-          bounded_stack_spawn_scaling=PASS
-          nearby_logical_cap=PASS
-          wildstacker_entity_integration=PASS
-          wildstacker_spawner_migration=PASS
+          native_stack_overflow_safety=PASS
+          spawned_entity_direct_aggregation=PASS
+          spawned_entity_cap_exactness=PASS
+          wildstacker_entity_backend=OPTIONAL_PUBLIC_API
+          wildstacker_spawner_authority_disabled=PASS
+          essence_policy=PER_LOGICAL_UNIT
+          essence_delivery=GROUND_OR_INVENTORY_WITH_FALLBACK
+          essence_stack_quantity_semantics=PASS
           redstone_stack_lock=PASS
-          runtime_status_live_refresh=PASS
-          stack_title_display=PASS
-          stack_title_hide_config=PASS
-          config_defaults_materialized=PASS
+          migration_restart_safety=PASS
+          runtime_status=PASS
           stable_baseline_tag=$BASELINE_STABLE_TAG
           stable_baseline_sha=$BASELINE_STABLE_SHA
           stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256

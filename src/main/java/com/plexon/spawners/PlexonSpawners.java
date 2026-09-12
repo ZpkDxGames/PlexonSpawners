@@ -157,7 +157,7 @@ public final class PlexonSpawners extends JavaPlugin {
             schedulePersistenceCoordinator();
 
             coreBridge.markReady(
-                "Native spawner stacks, tiers, entity-stack integration, migration, redstone lock, logical cap, provenance and diagnostics ready");
+                "Native spawner stacks, direct entity aggregation, tiers, migration, redstone lock, logical cap, provenance and Essence ready");
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
                 + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode with "
                 + managedRegistry.size() + " managed physical spawners / "
@@ -324,12 +324,19 @@ public final class PlexonSpawners extends JavaPlugin {
             getConfig().set("config-version", 8);
             changed = true;
         }
+        if (configVersion < 9) {
+            // 3.4 adds entity-aggregation settings and new bundled adjacent-stack
+            // defaults. copyDefaults below materializes missing keys but deliberately
+            // does not overwrite an administrator's existing nearby.enabled value.
+            getConfig().set("config-version", 9);
+            changed = true;
+        }
 
         // Materialize resource defaults without overwriting administrator values.
         getConfig().options().copyDefaults(true);
         saveConfig();
         if (changed) {
-            getLogger().info("Updated configuration defaults for PlexonSpawners 3.3 native stacking (schema 8).");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 3.4 stacking/Essence reliability (schema 9).");
         }
     }
 }
