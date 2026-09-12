@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.0.0"
+version = "3.1.0"
 
 val pluginVersion = version.toString()
 
@@ -80,6 +80,7 @@ val verifyDistribution = tasks.register("verifyDistribution") {
         ZipFile(archive).use { zip ->
             listOf(
                 "plugin.yml",
+                "config.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
                 "com/plexon/spawners/api/PlexonSpawnersApi.class",
                 "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",
@@ -88,6 +89,9 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "com/plexon/spawners/integration/core/CoreBridge.class",
                 "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
                 "com/plexon/spawners/managed/SpawnerOriginService.class",
+                "com/plexon/spawners/managed/NearbyStackCapPolicy.class",
+                "com/plexon/spawners/config/NearbyStackCapSettings.class",
+                "com/plexon/spawners/listener/NearbyStackCapListener.class",
                 "com/plexon/spawners/gui/SpawnerControlGui.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
             require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {

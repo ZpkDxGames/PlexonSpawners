@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.1.0 - Stable WildStacker Nearby Logical Stack Cap
+
+- Added `managed.nearby-stack-cap` with defaults `enabled: true`, `radius: 8.0`, `maximum-amount: 99`, and `same-type-only: true`.
+- Added bounded same-type population counting that uses WildStacker's real logical entity stack amount when available and physical amount `1` when WildStacker is absent.
+- Extended the existing cached reflective WildStacker bridge with entity/spawner amount accessors and lifecycle-cached `SpawnerStackedEntitySpawnEvent` / `EntityStackEvent` interception.
+- Added fast-path versus granular spawn decisions using the proven upper bound `spawn-count × WildStacker spawner stack amount`.
+- Near the cap, disables WildStacker's direct stacked contribution, cancels the direct `EntityStackEvent`, and gates unit spawns through Paper `PreSpawnerSpawnEvent` so the standard overridden-spawner path does not intentionally overshoot.
+- Added a conservative whole-cycle rejection fallback for non-overridden Bukkit `SpawnerSpawnEvent` contributions when the public event contract cannot safely expose a partial amount.
+- Hardened WildStacker degradation handling so dynamically registered guard events are unregistered immediately if reflective compatibility becomes unavailable.
+- Preserved managed UUID identity, persistence schema 1, item schema 2, ownership/access, tier tuning, provenance, break/unstack behavior and first-party persistence semantics.
+- Kept tier `max-nearby-entities` separate from the new logical stack cap.
+- Added guard diagnostics counters for checks, blocked attempts, logical entities counted, WildStacker amount lookups and fail-closed decisions.
+- Bumped configuration schema from 5 to 6 using additive defaults only; existing administrator customizations are not rewritten.
+- Added policy/settings/source-contract regression coverage and dedicated migration/release documentation.
+- Removed the 3.1 prerelease publication path and converted the line to stable-only publication from exact current `main` through `release/stable`.
+- Stable rollback is `v3.0.0` (`df5ba1970add67a46dc1afc0d844578144a88df1`), JAR SHA-256 `61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564`.
+
+GitHub source/build certification requires the complete test/check/JAR/distribution pipeline to pass on exact stable source. Live PlexonCraft runtime certification remains a separate operational gate and is recorded as `NOT_EXECUTED` when no live server evidence has been supplied.
+
 ## 3.0.0 - Stable Managed-Spawner Release
 
 - Promoted the accepted 3.0 managed-spawner architecture and RC2 runtime-reliability line to stable.

@@ -123,6 +123,10 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
         sendDiagnostic(sender, "Persistence cadence", plugin.tuning().persistenceIntervalTicks() + " ticks");
         sendDiagnostic(sender, "Provenance radius", plugin.tuning().provenanceSearchRadius() + " blocks");
         sendDiagnostic(sender, "Chunk safety cap", Integer.toString(plugin.tuning().maxManagedPerChunk()));
+        sendDiagnostic(sender, "Nearby Stack Cap", enabled(plugin.nearbyStackCapSettings().enabled()));
+        sendDiagnostic(sender, "Stack Cap Radius", plugin.nearbyStackCapSettings().radius() + " blocks");
+        sendDiagnostic(sender, "Stack Cap Maximum", Integer.toString(plugin.nearbyStackCapSettings().maximumAmount()));
+        sendDiagnostic(sender, "Stack Cap Same Type", Boolean.toString(plugin.nearbyStackCapSettings().sameTypeOnly()));
         sendDiagnostic(sender, "Breaking", enabled(plugin.settings().breakingEnabled()));
         sendDiagnostic(sender, "Take ownership", Boolean.toString(plugin.settings().takeOwnership()));
         sendDiagnostic(sender, "Silk required", Integer.toString(plugin.settings().requiredSilkTouchLevel()));
@@ -152,6 +156,11 @@ public final class PlexonSpawnersCommand implements CommandExecutor, TabComplete
             + performance.wildStackerNotInstalled() + " absent / "
             + performance.wildStackerCancelled() + " cancelled / "
             + performance.wildStackerDegraded() + " degraded");
+        sendDiagnostic(sender, "Stack Cap Checks", Long.toString(performance.nearbyStackCapChecks()));
+        sendDiagnostic(sender, "Stack Cap Blocks", Long.toString(performance.nearbyStackCapBlocked()));
+        sendDiagnostic(sender, "Stack Cap Logical Counted", Long.toString(performance.nearbyStackCapLogicalEntitiesCounted()));
+        sendDiagnostic(sender, "Stack Cap WS Lookups", Long.toString(performance.nearbyStackCapWildStackerLookups()));
+        sendDiagnostic(sender, "Stack Cap Fail Closed", Long.toString(performance.nearbyStackCapFailClosed()));
         sendDiagnostic(sender, "Recoveries", Long.toString(performance.qualifiedRecoveries()));
         sendDiagnostic(sender, "Essence outcomes", performance.essenceWins() + "/" + performance.essenceRolls()
             + " wins/rolls, " + performance.essenceLogicalAmountAwarded() + " logical");

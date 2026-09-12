@@ -5,8 +5,12 @@ import java.util.function.Consumer;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.EventHandler;
+import org.bukkit.event.EventPriority;
+import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.PluginDisableEvent;
 import org.bukkit.event.server.PluginEnableEvent;
@@ -26,6 +30,13 @@ public final class WildStackerCompat implements Listener {
         UNAVAILABLE
     }
 
+    public record Amount(Result result, int amount) {}
+
+    public interface SpawnGuard {
+        boolean shouldUseStackedSpawn(CreatureSpawner spawner);
+        boolean shouldCancelEntityStack(LivingEntity existingTarget);
+    }
+
     private enum State {
         NOT_INSTALLED,
         DISABLED,
@@ -35,16 +46,31 @@ public final class WildStackerCompat implements Listener {
 
     private static final String WILDSTACKER = "WildStacker";
     private static final String API_CLASS = "com.bgsoftware.wildstacker.api.WildStackerAPI";
+    private static final String STACKED_SPAWN_EVENT =
+        "com.bgsoftware.wildstacker.api.events.SpawnerStackedEntitySpawnEvent";
+    private static final String ENTITY_STACK_EVENT =
+        "com.bgsoftware.wildstacker.api.events.EntityStackEvent";
+    private static final String STACKED_ENTITY_CLASS =
+        "com.bgsoftware.wildstacker.api.objects.StackedEntity";
 
     private final JavaPlugin plugin;
     private final Consumer<String> degradationReporter;
+    private final Listener dynamicListener = new Listener() {};
 
     private Plugin provider;
     private Method getStackedSpawner;
+    private Method getEntityAmount;
+    private Method getSpawnersAmount;
     private Class<?> stackedSpawnerClass;
     private Method getStackAmount;
     private Method runUnstack;
     private Object successResult;
+    private SpawnGuard spawnGuard;
+    private Method stackedSpawnGetSpawner;
+    private Method stackedSpawnSetShouldBeStacked;
+    private Method entityStackGetEntity;
+    private Method entityStackSetCancelled;
+    private Method stackedEntityGetLivingEntity;
     private State state = State.NOT_INSTALLED;
     private boolean warned;
     private String resolutionMode = "none";
@@ -71,6 +97,19 @@ public final class WildStackerCompat implements Listener {
             return;
         }
         resolve(detected);
+    }
+
+    public void setSpawnGuard(final SpawnGuard spawnGuard) {
+        this.spawnGuard = spawnGuard;
+        if (state == State.READY && provider != null && provider.isEnabled()) {
+            try {
+                registerSpawnInterceptors(provider.getClass().getClassLoader());
+            } catch (final ReflectiveOperationException | RuntimeException exception) {
+                degrade(exception);
+            } catch (final LinkageError error) {
+                degrade(error);
+            }
+        }
     }
 
     @EventHandler
@@ -124,6 +163,44 @@ public final class WildStackerCompat implements Listener {
         }
     }
 
+    public Amount getLogicalEntityAmount(final LivingEntity entity) {
+        if (state == State.NOT_INSTALLED) {
+            return new Amount(Result.NOT_INSTALLED, 1);
+        }
+        if (state != State.READY || provider == null || !provider.isEnabled() || getEntityAmount == null) {
+            return new Amount(Result.UNAVAILABLE, 0);
+        }
+        try {
+            final int amount = ((Number) getEntityAmount.invoke(null, entity)).intValue();
+            return new Amount(Result.SUCCESS, Math.max(1, amount));
+        } catch (final ReflectiveOperationException | RuntimeException exception) {
+            degrade(exception);
+            return new Amount(Result.UNAVAILABLE, 0);
+        } catch (final LinkageError error) {
+            degrade(error);
+            return new Amount(Result.UNAVAILABLE, 0);
+        }
+    }
+
+    public Amount getLogicalSpawnerAmount(final CreatureSpawner spawner) {
+        if (state == State.NOT_INSTALLED) {
+            return new Amount(Result.NOT_INSTALLED, 1);
+        }
+        if (state != State.READY || provider == null || !provider.isEnabled() || getSpawnersAmount == null) {
+            return new Amount(Result.UNAVAILABLE, 0);
+        }
+        try {
+            final int amount = ((Number) getSpawnersAmount.invoke(null, spawner)).intValue();
+            return new Amount(Result.SUCCESS, Math.max(1, amount));
+        } catch (final ReflectiveOperationException | RuntimeException exception) {
+            degrade(exception);
+            return new Amount(Result.UNAVAILABLE, 0);
+        } catch (final LinkageError error) {
+            degrade(error);
+            return new Amount(Result.UNAVAILABLE, 0);
+        }
+    }
+
     public String status() {
         return switch (state) {
             case NOT_INSTALLED -> "not installed";
@@ -137,24 +214,106 @@ public final class WildStackerCompat implements Listener {
         return resolutionMode;
     }
 
+    public boolean installed() {
+        return state != State.NOT_INSTALLED;
+    }
+
     public boolean methodCacheReady() {
-        return state == State.READY && getStackedSpawner != null;
+        return state == State.READY
+            && getStackedSpawner != null
+            && getEntityAmount != null
+            && getSpawnersAmount != null;
     }
 
     private void resolve(final Plugin detected) {
+        HandlerList.unregisterAll(dynamicListener);
         provider = detected;
         warned = false;
         stackedSpawnerClass = null;
         getStackAmount = null;
         runUnstack = null;
         successResult = null;
+        clearEventAccessors();
 
         try {
             final ClassLoader loader = detected.getClass().getClassLoader();
             final Class<?> apiClass = Class.forName(API_CLASS, true, loader);
             getStackedSpawner = apiClass.getMethod("getStackedSpawner", CreatureSpawner.class);
+            getEntityAmount = apiClass.getMethod("getEntityAmount", LivingEntity.class);
+            getSpawnersAmount = apiClass.getMethod("getSpawnersAmount", CreatureSpawner.class);
             state = State.READY;
             resolutionMode = "cached reflection";
+            if (spawnGuard != null) {
+                registerSpawnInterceptors(loader);
+            }
+        } catch (final ReflectiveOperationException | RuntimeException exception) {
+            degrade(exception);
+        } catch (final LinkageError error) {
+            degrade(error);
+        }
+    }
+
+    private void registerSpawnInterceptors(final ClassLoader loader) throws ReflectiveOperationException {
+        HandlerList.unregisterAll(dynamicListener);
+
+        final Class<? extends Event> stackedSpawnClass =
+            Class.forName(STACKED_SPAWN_EVENT, true, loader).asSubclass(Event.class);
+        stackedSpawnGetSpawner = stackedSpawnClass.getMethod("getSpawner");
+        stackedSpawnSetShouldBeStacked = stackedSpawnClass.getMethod("setShouldBeStacked", boolean.class);
+
+        final Class<? extends Event> entityStackClass =
+            Class.forName(ENTITY_STACK_EVENT, true, loader).asSubclass(Event.class);
+        entityStackGetEntity = entityStackClass.getMethod("getEntity");
+        entityStackSetCancelled = entityStackClass.getMethod("setCancelled", boolean.class);
+        final Class<?> stackedEntityClass = Class.forName(STACKED_ENTITY_CLASS, true, loader);
+        stackedEntityGetLivingEntity = stackedEntityClass.getMethod("getLivingEntity");
+
+        plugin.getServer().getPluginManager().registerEvent(
+            stackedSpawnClass,
+            dynamicListener,
+            EventPriority.HIGHEST,
+            (ignored, event) -> handleStackedSpawnEvent(event),
+            plugin,
+            false
+        );
+        plugin.getServer().getPluginManager().registerEvent(
+            entityStackClass,
+            dynamicListener,
+            EventPriority.HIGHEST,
+            (ignored, event) -> handleEntityStackEvent(event),
+            plugin,
+            false
+        );
+        resolutionMode = "cached reflection (entity + spawner guard events ready)";
+    }
+
+    private void handleStackedSpawnEvent(final Event event) {
+        if (spawnGuard == null || stackedSpawnGetSpawner == null || stackedSpawnSetShouldBeStacked == null) {
+            return;
+        }
+        try {
+            final CreatureSpawner spawner = (CreatureSpawner) stackedSpawnGetSpawner.invoke(event);
+            if (!spawnGuard.shouldUseStackedSpawn(spawner)) {
+                stackedSpawnSetShouldBeStacked.invoke(event, false);
+            }
+        } catch (final ReflectiveOperationException | RuntimeException exception) {
+            degrade(exception);
+        } catch (final LinkageError error) {
+            degrade(error);
+        }
+    }
+
+    private void handleEntityStackEvent(final Event event) {
+        if (spawnGuard == null || entityStackGetEntity == null
+            || entityStackSetCancelled == null || stackedEntityGetLivingEntity == null) {
+            return;
+        }
+        try {
+            final Object stackedEntity = entityStackGetEntity.invoke(event);
+            final LivingEntity livingEntity = (LivingEntity) stackedEntityGetLivingEntity.invoke(stackedEntity);
+            if (spawnGuard.shouldCancelEntityStack(livingEntity)) {
+                entityStackSetCancelled.invoke(event, true);
+            }
         } catch (final ReflectiveOperationException | RuntimeException exception) {
             degrade(exception);
         } catch (final LinkageError error) {
@@ -191,24 +350,40 @@ public final class WildStackerCompat implements Listener {
     }
 
     private void clear(final State nextState, final String mode, final Plugin nextProvider) {
+        HandlerList.unregisterAll(dynamicListener);
         provider = nextProvider;
         getStackedSpawner = null;
+        getEntityAmount = null;
+        getSpawnersAmount = null;
         stackedSpawnerClass = null;
         getStackAmount = null;
         runUnstack = null;
         successResult = null;
+        clearEventAccessors();
         state = nextState;
         resolutionMode = mode;
     }
 
+    private void clearEventAccessors() {
+        stackedSpawnGetSpawner = null;
+        stackedSpawnSetShouldBeStacked = null;
+        entityStackGetEntity = null;
+        entityStackSetCancelled = null;
+        stackedEntityGetLivingEntity = null;
+    }
+
     private void degrade(final Throwable throwable) {
+        HandlerList.unregisterAll(dynamicListener);
         state = State.DEGRADED;
         resolutionMode = "degraded";
         getStackedSpawner = null;
+        getEntityAmount = null;
+        getSpawnersAmount = null;
         stackedSpawnerClass = null;
         getStackAmount = null;
         runUnstack = null;
         successResult = null;
+        clearEventAccessors();
         warnOnce(throwable);
     }
 
@@ -219,7 +394,7 @@ public final class WildStackerCompat implements Listener {
         warned = true;
         plugin.getLogger().warning(
             "WildStacker was detected, but its stack API could not be used. "
-                + "PlexonSpawners will fail closed to avoid deleting a full stack."
+                + "PlexonSpawners will fail closed for managed stack-sensitive operations."
         );
         plugin.getLogger().warning(
             "Compatibility error: " + throwable.getClass().getSimpleName() + ": " + throwable.getMessage()
