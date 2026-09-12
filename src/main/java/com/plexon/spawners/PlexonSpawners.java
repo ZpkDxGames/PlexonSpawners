@@ -5,6 +5,7 @@ import com.plexon.spawners.command.PlexonSpawnersCommand;
 import com.plexon.spawners.compat.WildStackerCompat;
 import com.plexon.spawners.config.NearbyStackCapSettings;
 import com.plexon.spawners.config.PluginSettings;
+import com.plexon.spawners.config.RedstoneLockSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.gui.AdminGui;
 import com.plexon.spawners.gui.SpawnerControlGui;
@@ -18,6 +19,7 @@ import com.plexon.spawners.listener.SpawnerChunkListener;
 import com.plexon.spawners.listener.SpawnerPlaceListener;
 import com.plexon.spawners.listener.SpawnerProvenanceListener;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.RedstoneSpawnerLockService;
 import com.plexon.spawners.managed.SpawnerOriginService;
 import com.plexon.spawners.managed.SpawnerStateService;
 import com.plexon.spawners.managed.SpawnerTuning;
@@ -68,6 +70,7 @@ public final class PlexonSpawners extends JavaPlugin {
     private final PluginSettings settings = new PluginSettings();
     private final SpawnerTuning tuning = new SpawnerTuning();
     private final NearbyStackCapSettings nearbyStackCapSettings = new NearbyStackCapSettings();
+    private final RedstoneLockSettings redstoneLockSettings = new RedstoneLockSettings();
     private final PerformanceCounters performanceCounters = new PerformanceCounters();
 
     private MessageService messages;
@@ -79,6 +82,7 @@ public final class PlexonSpawners extends JavaPlugin {
     private ManagedSpawnerRegistry managedRegistry;
     private SpawnerStateService spawnerStateService;
     private SpawnerOriginService spawnerOriginService;
+    private RedstoneSpawnerLockService redstoneLockService;
     private BukkitTask persistenceTask;
 
     @Override
@@ -94,6 +98,7 @@ public final class PlexonSpawners extends JavaPlugin {
             settings.reload(getConfig());
             tuning.reload(getConfig());
             nearbyStackCapSettings.reload(getConfig());
+            redstoneLockSettings.reload(getConfig());
             reportConfigurationWarnings();
             essenceService = new EssenceService(this);
             spawnerItemService = new SpawnerItemService(this);
@@ -110,12 +115,18 @@ public final class PlexonSpawners extends JavaPlugin {
             );
             getServer().getServicesManager().register(PlexonSpawnersApi.class, api, this, ServicePriority.Normal);
 
+            wildStackerCompat = new WildStackerCompat(this, detail -> coreBridge.markDegraded(detail));
+            redstoneLockService = new RedstoneSpawnerLockService(this, managedRegistry, redstoneLockSettings);
+
             final AdminGui adminGui = new AdminGui(this, essenceService, messages);
             final SpawnerControlGui controlGui = new SpawnerControlGui(
                 managedRegistry,
                 spawnerStateService,
                 tuning,
-                essenceService
+                essenceService,
+                nearbyStackCapSettings,
+                wildStackerCompat,
+                redstoneLockService
             );
             final PlexonSpawnersCommand command = new PlexonSpawnersCommand(
                 this,
@@ -124,7 +135,6 @@ public final class PlexonSpawners extends JavaPlugin {
                 spawnerItemService,
                 messages
             );
-            wildStackerCompat = new WildStackerCompat(this, detail -> coreBridge.markDegraded(detail));
             final NearbyStackCapListener nearbyStackCapListener = new NearbyStackCapListener(
                 managedRegistry,
                 nearbyStackCapSettings,
@@ -148,6 +158,7 @@ public final class PlexonSpawners extends JavaPlugin {
             getServer().getPluginManager().registerEvents(adminGui, this);
             getServer().getPluginManager().registerEvents(controlGui, this);
             getServer().getPluginManager().registerEvents(chunkListener, this);
+            getServer().getPluginManager().registerEvents(redstoneLockService, this);
             getServer().getPluginManager().registerEvents(nearbyStackCapListener, this);
             getServer().getPluginManager().registerEvents(wildStackerCompat, this);
             getServer().getPluginManager().registerEvents(
@@ -179,10 +190,11 @@ public final class PlexonSpawners extends JavaPlugin {
             );
 
             chunkListener.reconcileAlreadyLoaded();
+            redstoneLockService.start();
             schedulePersistenceCoordinator();
 
             coreBridge.markReady(
-                "Managed spawner registry, tiers, nearby logical stack cap, provenance, cached item runtime, API/events and diagnostics ready"
+                "Managed spawner registry, tiers, WildStacker stacked-output guard, redstone lock, nearby logical cap, provenance, API/events and diagnostics ready"
             );
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
                 + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode with "
@@ -200,6 +212,9 @@ public final class PlexonSpawners extends JavaPlugin {
             persistenceTask.cancel();
             persistenceTask = null;
         }
+        if (redstoneLockService != null) {
+            redstoneLockService.close();
+        }
         if (managedRegistry != null) {
             managedRegistry.close();
         }
@@ -214,6 +229,7 @@ public final class PlexonSpawners extends JavaPlugin {
         settings.reload(getConfig());
         tuning.reload(getConfig());
         nearbyStackCapSettings.reload(getConfig());
+        redstoneLockSettings.reload(getConfig());
         if (messages != null) {
             messages.reload();
         }
@@ -225,6 +241,9 @@ public final class PlexonSpawners extends JavaPlugin {
         }
         if (wildStackerCompat != null) {
             wildStackerCompat.refresh();
+        }
+        if (redstoneLockService != null) {
+            redstoneLockService.reload();
         }
         schedulePersistenceCoordinator();
         reportConfigurationWarnings();
@@ -240,6 +259,14 @@ public final class PlexonSpawners extends JavaPlugin {
 
     public NearbyStackCapSettings nearbyStackCapSettings() {
         return nearbyStackCapSettings;
+    }
+
+    public RedstoneLockSettings redstoneLockSettings() {
+        return redstoneLockSettings;
+    }
+
+    public RedstoneSpawnerLockService redstoneLockService() {
+        return redstoneLockService;
     }
 
     public PlexonSpawnersApi api() {
@@ -345,25 +372,39 @@ public final class PlexonSpawners extends JavaPlugin {
         }
 
         if (configVersion < 6) {
-            if (!getConfig().contains("managed.nearby-stack-cap.enabled")) {
+            if (!getConfig().contains("managed.nearby-stack-cap.enabled", true)) {
                 getConfig().set("managed.nearby-stack-cap.enabled", true);
             }
-            if (!getConfig().contains("managed.nearby-stack-cap.radius")) {
+            if (!getConfig().contains("managed.nearby-stack-cap.radius", true)) {
                 getConfig().set("managed.nearby-stack-cap.radius", NearbyStackCapSettings.DEFAULT_RADIUS);
             }
-            if (!getConfig().contains("managed.nearby-stack-cap.maximum-amount")) {
+            if (!getConfig().contains("managed.nearby-stack-cap.maximum-amount", true)) {
                 getConfig().set("managed.nearby-stack-cap.maximum-amount", NearbyStackCapSettings.DEFAULT_MAXIMUM);
             }
-            if (!getConfig().contains("managed.nearby-stack-cap.same-type-only")) {
+            if (!getConfig().contains("managed.nearby-stack-cap.same-type-only", true)) {
                 getConfig().set("managed.nearby-stack-cap.same-type-only", true);
             }
             getConfig().set("config-version", 6);
             changed = true;
         }
 
+        if (configVersion < 7) {
+            if (!getConfig().contains("managed.redstone-lock.enabled", true)) {
+                getConfig().set("managed.redstone-lock.enabled", true);
+            }
+            if (!getConfig().contains("managed.redstone-lock.poll-interval-ticks", true)) {
+                getConfig().set(
+                    "managed.redstone-lock.poll-interval-ticks",
+                    RedstoneLockSettings.DEFAULT_POLL_INTERVAL_TICKS
+                );
+            }
+            getConfig().set("config-version", 7);
+            changed = true;
+        }
+
         if (changed) {
             saveConfig();
-            getLogger().info("Updated configuration defaults for PlexonSpawners 3.1 compatibility.");
+            getLogger().info("Updated configuration defaults for PlexonSpawners 3.2 compatibility.");
         }
     }
 }
