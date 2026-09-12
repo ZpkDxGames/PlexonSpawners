@@ -12,9 +12,9 @@ permissions:
   contents: read
 
 env:
-  BASELINE_STABLE_TAG: 'v3.1.0'
-  BASELINE_STABLE_SHA: '8aaf1b7078edf5e9076af02035d204e123b3958a'
-  BASELINE_STABLE_JAR_SHA256: '00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65'
+  BASELINE_STABLE_TAG: 'v3.1.1'
+  BASELINE_STABLE_SHA: 'e9c50532ba0c227153ddb69f70a073e04d326a01'
+  BASELINE_STABLE_JAR_SHA256: '5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c'
   CORE_VERSION: '2.0.4'
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
@@ -99,10 +99,12 @@ jobs:
             com/plexon/spawners/api/PlexonSpawnersApi.class \
             com/plexon/spawners/compat/WildStackerCompat.class \
             com/plexon/spawners/config/NearbyStackCapSettings.class \
+            com/plexon/spawners/config/RedstoneLockSettings.class \
             com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
             com/plexon/spawners/managed/SpawnerStateService.class \
             com/plexon/spawners/managed/SpawnerOriginService.class \
             com/plexon/spawners/managed/NearbyStackCapPolicy.class \
+            com/plexon/spawners/managed/RedstoneSpawnerLockService.class \
             com/plexon/spawners/listener/NearbyStackCapListener.class \
             com/plexon/spawners/listener/SpawnerChunkListener.class \
             com/plexon/spawners/gui/SpawnerControlGui.class; do
@@ -110,7 +112,7 @@ jobs:
           done
           unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
           unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
-          unzip -p "$JAR" config.yml | grep -F 'config-version: 6'
+          unzip -p "$JAR" config.yml | grep -F 'config-version: 7'
           javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
           if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
             echo 'PlexonCore runtime classes must not be shaded.' >&2
@@ -134,7 +136,7 @@ jobs:
           paper=26.2.build.121-stable
           plexoncore=$CORE_VERSION
           plexoncore_sha256=$CORE_SHA256
-          config_schema=6
+          config_schema=7
           config_defaults_materialized=PASS
           managed_persistence_schema=1
           managed_item_schema=2
@@ -142,7 +144,11 @@ jobs:
           nearby_stack_cap_default_maximum=99
           wildstacker_logical_counting=PASS
           wildstacker_direct_stack_guard=PASS
+          wildstacker_pending_stack_resize=PASS
           wildstacker_degradation_unhook=PASS
+          redstone_lock_countdown_freeze=PASS
+          redstone_lock_pdc_recovery=PASS
+          runtime_status_gui=PASS
           stable_baseline_tag=$BASELINE_STABLE_TAG
           stable_baseline_sha=$BASELINE_STABLE_SHA
           stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
