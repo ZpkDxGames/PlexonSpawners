@@ -33,7 +33,7 @@ class NearbyStackCapContractTest {
         assertTrue(compat.contains("setCancelled"));
         assertTrue(listener.contains("shouldCancelEntityStack"));
         assertTrue(listener.contains("cycle.mode != NearbyStackCapPolicy.Decision.FAST_PATH"));
-        assertTrue(policy.contains("return Decision.GRANULAR"));
+        assertTrue(policy.contains("Decision.FAST_PATH : Decision.GRANULAR"));
     }
 
     @Test
