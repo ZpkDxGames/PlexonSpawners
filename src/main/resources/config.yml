@@ -1,13 +1,17 @@
 # ============================================================================
-# PlexonSpawners 3.1.1 - Main Configuration
+# PlexonSpawners 3.2.0-rc.1 - Main Configuration
 # Paper 26.2 / Java 25 / PlexonCore 2.0.4
 # ============================================================================
 # High-frequency listeners read compiled runtime snapshots only. Managed-spawner
 # persistence is coalesced by one shared coordinator and never writes once per
 # placement, break or spawned entity.
+#
+# WildStacker integration is automatic when WildStacker is installed and its
+# public API is available. Managed spawner output stays stack-aware; there is no
+# separate PlexonSpawners toggle required to enable WildStacker's own stacking.
 # ============================================================================
 
-config-version: 6
+config-version: 7
 
 managed:
   # Enables the persistent managed-spawner product layer.
@@ -34,6 +38,16 @@ managed:
     maximum-amount: 99
     # When true, only the managed spawner's entity type contributes to the cap.
     same-type-only: true
+
+  # Freeze managed spawners while the spawner block is receiving direct or
+  # indirect redstone power. The live spawn countdown is preserved in memory and
+  # resumes from the same value when power is removed.
+  redstone-lock:
+    enabled: true
+    # One shared reconciliation task checks only managed spawners in loaded chunks.
+    # Redstone/block events and spawn-time gates provide immediate safety as well.
+    # Range: 1-200 ticks.
+    poll-interval-ticks: 20
 
   # OWNER_ONLY -> owner/admin inspect/manage/break
   # PUBLIC_USE -> everyone may inspect; owner/admin manage/break
