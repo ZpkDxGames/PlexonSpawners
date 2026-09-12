@@ -114,6 +114,14 @@ public final class SpawnerBreakListener implements Listener {
                 return;
             }
             if (stackSettings.enabled()) {
+                if (stackSettings.requireOwner()
+                    && !administrator
+                    && !managed.ownerId().equals(player.getUniqueId())) {
+                    event.setCancelled(true);
+                    player.sendMessage(miniMessage.deserialize(
+                        "<!italic><#FF6B6B>Only the owner or an administrator can break this native spawner stack.</#FF6B6B>"));
+                    return;
+                }
                 handleNativeManagedBreak(event, player, spawner, managed);
                 return;
             }

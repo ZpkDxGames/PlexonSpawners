@@ -1,5 +1,28 @@
 # Changelog
 
+## 3.3.0 - Native Plexon Spawner Stacking
+
+- Moved logical **spawner stacking** under first-party PlexonSpawners ownership while preserving WildStacker as an optional **entity/mob stacking** provider only.
+- Added first-class native `stackAmount` and persisted migration state to managed records; advanced `managed-spawners.db` from schema 1 to schema 2 and physical managed-spawner PDC state to schema 2.
+- Added backward-readable schema-1 migration: legacy records enter `PENDING`, import an existing WildStacker logical spawner amount once, durably persist `MIGRATING` before provider normalization, and finish as `MIGRATED` without multiplicative restart risk.
+- Added fail-closed `CONFLICT` handling plus `/pspawners migration status` and `/pspawners migration retry` diagnostics.
+- Added deterministic bounded vertical auto-stack with default range 8, default maximum stack size 64, and same entity/owner/tier/access compatibility requirements.
+- Added native ONE/ALL break semantics and a tier-preserving withdrawal GUI with 1/8/16/ALL actions and safe inventory overflow handling.
+- Changed tier-upgrade pricing to use `base cost × native Plexon stack amount`; stale GUI state is re-resolved before charging.
+- Added bounded native spawn scaling from `tier spawn-count × native stack amount`, with the existing nearby logical population cap remaining authoritative and a vanilla physical-output fallback cap when WildStacker is absent.
+- Removed WildStacker spawner amount from normal managed-stack runtime authority; WildStacker entity amount/resize remains the logical entity representation path.
+- Preserved the 3.2 redstone countdown freeze/restore architecture for the entire logical stack with one physical timer.
+- Added Paper `TextDisplay` stack titles with event/chunk-driven lifecycle, duplicate cleanup, `hide-title`, `hide-single`, tier text, view distance and vertical offset configuration.
+- Added explosion protection and piston movement guards for managed logical stacks.
+- Expanded Runtime Status with native stack amount/max, stack multiplier, requested bounded output, cycle cap, nearby cap, redstone state and WildStacker entity-integration status; open views refresh through one shared task.
+- Advanced configuration schema from 7 to 8 and materialized native stacking defaults without replacing administrator overrides.
+- Kept managed item schema 2 with schema-1 item compatibility; recovered/withdrawn stack units preserve their tier.
+- Added 3.3 native-stack policy/release contracts, migration documentation, stable release notes and exact distribution/provenance verification.
+- Stable publication is `v3.3.0` only: no 3.3 snapshot, beta, RC, prerelease or temporary public candidate is produced.
+- Actual pre-3.3 stable rollback remains `v3.1.1` (`e9c50532ba0c227153ddb69f70a073e04d326a01`), JAR SHA-256 `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`; `v3.2.0-rc.1` remains historical prerelease evidence rather than being misrepresented as a stable release.
+
+GitHub source/build certification and live PlexonCraft runtime certification remain separate. Stable provenance records live runtime as `NOT_EXECUTED` unless real Paper 26.2 server evidence is supplied.
+
 ## 3.2.0-rc.1 - WildStacker Runtime Compatibility & Redstone Control Candidate
 
 - Preserved WildStacker's stacked-spawner output through the exact logical nearby-cap path instead of intentionally degrading near-cap cycles to loose entities.
@@ -60,7 +83,7 @@ GitHub source/build certification requires the complete test/check/JAR/distribut
 - Replaced the RC-specific publication path with canonical Build + exact-current-main stable Release workflows.
 - Stable Release now rebuilds/retests exact source, verifies Java 25/class major 69 and dependency isolation, publishes JAR/checksum/test/provenance evidence, downloads the public assets and verifies them before succeeding.
 - Stable rollback remains `v2.3.1` (`0ec54a04ecb77374874edf889b20286144c32a88`), with JAR SHA-256 `626299825e188db6f89dc5eb83f74bce3ce998aa3a45ffad817ee7372d39ffb8`.
-- Live PlexonCraft migration, placement/break/access/upgrade/restart/WildStacker/provenance/Spark/soak certification remains an operational follow-up and is recorded as `NOT_EXECUTED` when not run; CI does not infer live runtime PASS.
+- Live PlexonCraft migration, placement/break/access/upgrade/restart/persistence/provenance/WildStacker/Spark/soak certification remains an operational follow-up and is recorded as `NOT_EXECUTED` when not run; CI does not infer live runtime PASS.
 
 ## 3.0.0-rc.1 - Phase 2 Premium Managed-Spawner Candidate
 
@@ -113,13 +136,13 @@ GitHub source/build certification requires the complete test/check/JAR/distribut
 ## 2.2.0 - PlexonCore Migration & Public Spawner Event API
 
 - Migrated PlexonSpawners to the PlexonCore module bridge while preserving standalone operation.
-- Added Core API range validation and module lifecycle states STARTING/READY/DEGRADED/FAILED.
+- Added Core API range validation and module lifecycle states STARTING/READY/DEGDED/FAILED.
 - Registered module id `spawners` and published implemented spawner/API/event/WildStacker/stateless capabilities.
 - Added `PlexonSpawnerRecoveredEvent`, `PlexonSpawnerEssenceAwardedEvent`, and `PlexonSpawnerPlacedEvent` as stable synchronous post-success Bukkit events.
 - Added non-empty transaction IDs and event IDs for public event correlation and deduplication.
 - Preserved the existing `PlexonSpawnersApi` ServicesManager contract.
 - Added `/pspawners diagnostics` and expanded `/pspawners info` with Core mode, module state, Silk, Essence, WildStacker, API and event status.
-- Preserved `loadbefore: WildStacker` and added `softdepend: PlexonCore`.
+- Preserved the historical WildStacker integration ordering and added `softdepend: PlexonCore`.
 - PlexonCore is compile-only/provided and CI verifies its runtime classes are not shaded.
 
 ## 2.1.0 - PlexonCraft Presentation Update

@@ -19,7 +19,6 @@ import org.bukkit.plugin.java.JavaPlugin;
 
 /** Event-driven TextDisplay lifecycle for native logical stack titles. */
 public final class SpawnerStackDisplayService implements AutoCloseable {
-    private final JavaPlugin plugin;
     private final ManagedSpawnerRegistry registry;
     private final SpawnerTuning tuning;
     private final NativeStackSettings settings;
@@ -32,7 +31,6 @@ public final class SpawnerStackDisplayService implements AutoCloseable {
         final SpawnerTuning tuning,
         final NativeStackSettings settings
     ) {
-        this.plugin = plugin;
         this.registry = registry;
         this.tuning = tuning;
         this.settings = settings;
@@ -101,12 +99,10 @@ public final class SpawnerStackDisplayService implements AutoCloseable {
 
     @Override
     public void close() {
-        for (final World world : Bukkit.getWorlds()) {
-            for (final TextDisplay display : world.getEntitiesByClass(TextDisplay.class)) {
-                if (display.getPersistentDataContainer().has(ownerKey, PersistentDataType.STRING)) {
-                    display.remove();
-                }
-            }
+        // Remove only displays belonging to indexed, currently loaded managed spawners.
+        // Avoid a global world/entity scan during shutdown.
+        for (final ManagedSpawner record : registry.snapshot()) {
+            remove(record);
         }
     }
 

@@ -54,6 +54,7 @@ class NativeStackReleaseContractTest {
 
         assertTrue(breaking.contains("final int logicalAmount = managed.stackAmount()"));
         assertTrue(breaking.contains("stackSettings.sneakBreakAll()"));
+        assertTrue(breaking.contains("stackSettings.requireOwner()"));
         assertTrue(breaking.contains("registry.updateStackAmount(managed.id(), remaining)"));
         assertTrue(breaking.contains("createSpawnerStacks(type, amount, tier)"));
         assertTrue(gui.contains("createSpawnerStacks(current.type(), amount, current.tier())"));
@@ -63,7 +64,7 @@ class NativeStackReleaseContractTest {
     }
 
     @Test
-    void placementIsBoundedDeterministicAndCompatibilityAware() throws Exception {
+    void placementIsBoundedDeterministicCompatibilityAwareAndHonorsCreativeConsumption() throws Exception {
         final String registry = source("managed/ManagedSpawnerRegistry.java");
         final String placement = source("listener/SpawnerPlaceListener.java");
 
@@ -76,6 +77,9 @@ class NativeStackReleaseContractTest {
         assertTrue(registry.contains("thenComparingInt(ManagedSpawner::y)"));
         assertTrue(placement.contains("NativeStackPolicy.merge"));
         assertTrue(placement.contains("merge.mergedAmount() == 1"));
+        assertTrue(placement.contains("stackSettings.creativeConsumeOnPlace()"));
+        assertTrue(placement.contains("setItemInOffHand(replacement)"));
+        assertTrue(placement.contains("setItemInMainHand(replacement)"));
     }
 
     @Test
@@ -89,6 +93,8 @@ class NativeStackReleaseContractTest {
         assertTrue(display.contains("spawn(anchor, TextDisplay.class"));
         assertTrue(display.contains("stack_display_owner"));
         assertFalse(display.contains("runTaskTimer"));
+        assertFalse(display.contains("getEntitiesByClass"));
+        assertTrue(display.contains("for (final ManagedSpawner record : registry.snapshot())"));
         assertTrue(plugin.contains("stackDisplayService.reconcileLoaded()"));
     }
 

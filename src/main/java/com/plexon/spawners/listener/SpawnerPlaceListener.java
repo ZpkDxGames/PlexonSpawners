@@ -16,6 +16,7 @@ import java.util.Map;
 import java.util.UUID;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Bukkit;
+import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
@@ -24,6 +25,8 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockPlaceEvent;
+import org.bukkit.inventory.EquipmentSlot;
+import org.bukkit.inventory.ItemStack;
 
 public final class SpawnerPlaceListener implements Listener {
     private final SpawnerItemService spawnerItemService;
@@ -145,6 +148,7 @@ public final class SpawnerPlaceListener implements Listener {
             redstoneLocks.refresh(pending);
             displays.refresh(pending);
         }
+        consumeCreativeUnitIfConfigured(event);
         counters.managedPlacementSuccess();
 
         if (!Bukkit.isPrimaryThread()) {
@@ -154,6 +158,26 @@ public final class SpawnerPlaceListener implements Listener {
         Bukkit.getPluginManager().callEvent(new PlexonSpawnerPlacedEvent(
             event.getPlayer(), type, event.getBlockPlaced().getLocation(), event.getItemInHand(),
             transactionId + ":placed", transactionId));
+    }
+
+    private void consumeCreativeUnitIfConfigured(final BlockPlaceEvent event) {
+        if (event.getPlayer().getGameMode() != GameMode.CREATIVE || !stackSettings.creativeConsumeOnPlace()) {
+            return;
+        }
+        final ItemStack current = event.getItemInHand().clone();
+        final int remaining = current.getAmount() - 1;
+        final ItemStack replacement;
+        if (remaining <= 0) {
+            replacement = new ItemStack(Material.AIR);
+        } else {
+            current.setAmount(remaining);
+            replacement = current;
+        }
+        if (event.getHand() == EquipmentSlot.OFF_HAND) {
+            event.getPlayer().getInventory().setItemInOffHand(replacement);
+        } else {
+            event.getPlayer().getInventory().setItemInMainHand(replacement);
+        }
     }
 
     private boolean applyPhysical(final ManagedSpawner record) {
