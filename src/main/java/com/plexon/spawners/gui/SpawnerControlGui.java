@@ -360,7 +360,7 @@ public final class SpawnerControlGui implements Listener {
             case SUCCESS -> "Automatic stacked output · spawner x" + amount.amount();
             case NOT_INSTALLED -> "Not installed · physical output";
             case NOT_STACKED -> "Ready · unstacked spawner";
-            case DISABLED, CANCELLED, UNAVAILABLE -> wildStacker.status();
+            case CANCELLED, UNAVAILABLE -> wildStacker.status();
         };
     }
 
