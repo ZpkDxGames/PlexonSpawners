@@ -10,6 +10,7 @@ import java.util.UUID;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
 import org.bukkit.block.Block;
 import org.bukkit.block.CreatureSpawner;
@@ -22,6 +23,8 @@ import org.bukkit.event.block.BlockRedstoneEvent;
 import org.bukkit.event.entity.SpawnerSpawnEvent;
 import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.event.world.ChunkUnloadEvent;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 import org.bukkit.scheduler.BukkitTask;
 
@@ -29,10 +32,10 @@ import org.bukkit.scheduler.BukkitTask;
  * Runtime redstone lock for managed spawners.
  *
  * <p>The physical delay is moved to a distant hold value while powered and the exact
- * pre-lock delay is kept in memory. Unlocking restores that delay, so live redstone
- * time does not consume the spawn countdown. One shared poll covers only managed
- * spawners in loaded chunks; event hooks provide immediate reconciliation and a
- * final spawn-time safety gate.</p>
+ * pre-lock delay is retained in memory plus physical PDC. Unlocking restores that
+ * delay, so redstone time does not consume the spawn countdown. One shared poll covers
+ * only managed spawners in loaded chunks; event hooks provide immediate reconciliation
+ * and a final spawn-time safety gate.</p>
  */
 public final class RedstoneSpawnerLockService implements Listener, AutoCloseable {
     private static final int HOLD_DELAY = 32_000;
@@ -42,6 +45,8 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
     private final JavaPlugin plugin;
     private final ManagedSpawnerRegistry registry;
     private final RedstoneLockSettings settings;
+    private final NamespacedKey lockedKey;
+    private final NamespacedKey frozenDelayKey;
     private final Set<UUID> loadedManaged = new HashSet<>();
     private final Map<UUID, FrozenLock> locked = new HashMap<>();
     private BukkitTask pollTask;
@@ -54,6 +59,8 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
         this.plugin = plugin;
         this.registry = registry;
         this.settings = settings;
+        this.lockedKey = new NamespacedKey(plugin, "redstone_lock_active");
+        this.frozenDelayKey = new NamespacedKey(plugin, "redstone_frozen_delay");
     }
 
     public void start() {
@@ -112,7 +119,11 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
             return frozen.delayTicks();
         }
         final CreatureSpawner spawner = physicalSpawner(record);
-        return spawner == null ? -1 : Math.max(0, spawner.getDelay());
+        if (spawner == null) {
+            return -1;
+        }
+        final Integer persistedFrozen = readFrozenDelay(spawner);
+        return persistedFrozen == null ? Math.max(0, spawner.getDelay()) : persistedFrozen;
     }
 
     public boolean isPowered(final ManagedSpawner record) {
@@ -142,6 +153,12 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
     public void onChunkUnload(final ChunkUnloadEvent event) {
         for (final ManagedSpawner record : registry.entriesInChunk(
             event.getWorld(), event.getChunk().getX(), event.getChunk().getZ())) {
+            final CreatureSpawner spawner = physicalSpawner(record);
+            if (spawner != null) {
+                unlock(record, spawner);
+            } else {
+                locked.remove(record.id());
+            }
             loadedManaged.remove(record.id());
         }
     }
@@ -293,22 +310,41 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
     private void lock(final ManagedSpawner record, final CreatureSpawner spawner) {
         FrozenLock frozen = locked.get(record.id());
         if (frozen == null) {
-            frozen = new FrozenLock(Math.max(0, spawner.getDelay()));
+            final Integer persistedFrozen = readFrozenDelay(spawner);
+            final int delay = persistedFrozen == null ? Math.max(0, spawner.getDelay()) : persistedFrozen;
+            frozen = new FrozenLock(delay);
             locked.put(record.id(), frozen);
         }
+
+        final PersistentDataContainer pdc = spawner.getPersistentDataContainer();
+        pdc.set(lockedKey, PersistentDataType.INTEGER, 1);
+        pdc.set(frozenDelayKey, PersistentDataType.INTEGER, frozen.delayTicks());
         if (spawner.getDelay() < HOLD_REFRESH_BELOW) {
             spawner.setDelay(HOLD_DELAY);
-            spawner.update(true, false);
         }
+        spawner.update(true, false);
     }
 
     private void unlock(final ManagedSpawner record, final CreatureSpawner spawner) {
-        final FrozenLock frozen = locked.remove(record.id());
-        if (frozen == null) {
+        final FrozenLock runtimeFrozen = locked.remove(record.id());
+        final Integer persistedFrozen = readFrozenDelay(spawner);
+        final Integer delay = runtimeFrozen != null ? runtimeFrozen.delayTicks() : persistedFrozen;
+        if (delay == null) {
             return;
         }
-        spawner.setDelay(frozen.delayTicks());
+
+        final PersistentDataContainer pdc = spawner.getPersistentDataContainer();
+        pdc.remove(lockedKey);
+        pdc.remove(frozenDelayKey);
+        spawner.setDelay(Math.max(0, delay));
         spawner.update(true, false);
+    }
+
+    private Integer readFrozenDelay(final CreatureSpawner spawner) {
+        final PersistentDataContainer pdc = spawner.getPersistentDataContainer();
+        final Integer active = pdc.get(lockedKey, PersistentDataType.INTEGER);
+        final Integer delay = pdc.get(frozenDelayKey, PersistentDataType.INTEGER);
+        return active != null && active == 1 && delay != null ? Math.max(0, delay) : null;
     }
 
     private CreatureSpawner physicalSpawner(final ManagedSpawner record) {
@@ -328,15 +364,10 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
     }
 
     private void restoreAll() {
-        for (final Map.Entry<UUID, FrozenLock> entry : Map.copyOf(locked).entrySet()) {
-            final ManagedSpawner record = registry.find(entry.getKey());
-            if (record == null) {
-                continue;
-            }
+        for (final ManagedSpawner record : registry.snapshot()) {
             final CreatureSpawner spawner = physicalSpawner(record);
-            if (spawner != null) {
-                spawner.setDelay(entry.getValue().delayTicks());
-                spawner.update(true, false);
+            if (spawner != null && (locked.containsKey(record.id()) || readFrozenDelay(spawner) != null)) {
+                unlock(record, spawner);
             }
         }
         locked.clear();
