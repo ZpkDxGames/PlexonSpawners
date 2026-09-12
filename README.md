@@ -1,14 +1,54 @@
 # PlexonSpawners
 
-PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. Stable 3.1 adds a WildStacker-aware nearby logical population cap while preserving the 3.0 managed-spawner identity, ownership/access, tier, Essence, persistence and provenance contracts.
+PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. The 3.x line provides persistent managed identity, ownership/access, tiers, Essence upgrades, provenance, WildStacker integration and bounded runtime controls.
 
-Current stable version: `3.1.0`.
+Current stable version: `3.1.1`.
 
-## 3.1 nearby logical stack cap
+Current candidate: `3.2.0-rc.1`.
 
-3.1 adds a runtime-only population guard for Plexon-managed spawners. It does not persist a disabled state and does not replace the existing per-tier `max-nearby-entities` setting.
+## 3.2 WildStacker runtime compatibility
 
-Default configuration:
+WildStacker integration is automatic when WildStacker is installed and its public API is available. PlexonSpawners does not duplicate WildStacker's own entity-stacking enable/disable configuration.
+
+The standard WildStacker spawner-override path remains stack-native through PlexonSpawners' logical population cap. When an entire contribution fits, WildStacker keeps its optimized direct-stack path. Near the ceiling, PlexonSpawners blocks only an unsafe direct merge, lets WildStacker construct the pending stacked entity, reads its real logical amount, and trims that stack to the exact remaining capacity before the entity enters the world.
+
+Example with a logical cap of 99: if nearby Zombies total 97 and WildStacker prepares an x4 spawn, PlexonSpawners permits an x2 WildStacker stack so the resulting logical population is exactly 99. It does not intentionally turn that cycle into loose one-by-one mobs.
+
+The bridge uses lifecycle-cached reflection against WildStacker's public API (`getStackedEntity`, `getEntityAmount`, `getStackedSpawner`, `getSpawnersAmount`, and `StackedEntity#setStackAmount`). If WildStacker is detected but the required API becomes unavailable, stack-sensitive operations fail closed rather than treating an unknown stack as one entity.
+
+Non-overridden/custom WildStacker paths that do not publicly expose a safe pending logical contribution remain conservatively whole-cycle gated instead of knowingly overshooting the configured cap.
+
+## 3.2 redstone spawner lock
+
+Configuration schema 7 adds:
+
+```yaml
+managed:
+  redstone-lock:
+    enabled: true
+    poll-interval-ticks: 20
+```
+
+A powered managed spawner is actually paused: PlexonSpawners captures the live spawn delay, stores it in memory and physical PDC, moves the physical spawner to an internal hold delay, and restores the frozen countdown when power is removed. Direct and indirect redstone power are recognized.
+
+The design uses one shared reconciliation task for managed spawners in loaded chunks, plus redstone/block events and spawn-time safety gates. It does not create a scheduler per spawner. Chunk unload and orderly plugin shutdown restore the physical countdown; PDC recovery also protects the frozen value if an interrupted runtime leaves the hold state behind.
+
+## Live spawner information
+
+Right-click a managed spawner to open the control GUI. The central **Runtime Status** item reports:
+
+- ticks until the next spawn;
+- approximate seconds until the next spawn;
+- redstone lock state;
+- actual powered/unpowered signal state;
+- WildStacker automatic stacked-output status and logical spawner amount;
+- logical nearby cap and radius.
+
+Click Runtime Status to refresh the live values.
+
+## Nearby logical stack cap
+
+PlexonSpawners has an independent local population guard for managed spawners:
 
 ```yaml
 managed:
@@ -19,15 +59,13 @@ managed:
     same-type-only: true
 ```
 
-The radius uses Bukkit's bounded axis-aligned nearby-entity query around the center of the managed spawner block. With the default `same-type-only: true`, only living entities matching the managed spawner's `EntityType` contribute. WildStacker entities contribute their real logical stack amount: an `x70` and an `x29` Zombie stack count as 99, not two physical entities.
+The radius uses Bukkit's bounded axis-aligned nearby-entity query around the center of the managed spawner block. With `same-type-only: true`, only living entities matching the managed spawner's entity type contribute. WildStacker entities contribute their real logical amount: an x70 and x29 Zombie stack count as 99, not two physical entities.
 
-When the logical amount reaches 99, that managed spawner stops contributing. Once the population drops below 99, it becomes eligible automatically on the next spawn attempt. Multiple nearby managed spawners independently observe the same local population; different creature types do not block one another by default.
+At the cap the managed spawner contributes nothing. Once the logical population drops below the limit, it becomes eligible automatically on the next spawn cycle. Multiple nearby managed spawners independently observe the same local population; different creature types do not block one another by default.
 
-The WildStacker bridge remains optional and reflection-cached. When WildStacker is absent, each matching physical living entity counts as one. When WildStacker is installed but its required API is degraded, the spawn guard fails closed rather than treating a large stack as one entity. Dynamic WildStacker guard hooks are unregistered immediately when compatibility degrades so a broken reflective path is not repeatedly invoked.
+`managed.nearby-stack-cap.maximum-amount` is separate from the tier's native `max-nearby-entities` value.
 
-WildStacker's standard `spawners.spawners-override.enabled: true` path is intercepted before its direct `StackedEntity#increaseStackAmount(...)` contribution. A whole contribution takes the fast path only when its maximum possible amount fits under the cap. Near the ceiling, direct stack growth is cancelled and Paper `PreSpawnerSpawnEvent` is used as a unit-granular gate so `97 / 99` can reach 99 without becoming 104. On a non-overridden path where a safe partial contribution is not exposed by the public event contract, PlexonSpawners rejects the whole at-risk cycle rather than knowingly allowing overshoot.
-
-## 3.0 product model
+## Managed-spawner product model
 
 A Plexon-managed physical spawner has durable state:
 
@@ -46,21 +84,15 @@ Chunk reconciliation is identity-safe: registry state is reapplied only when the
 
 ## Ownership and access
 
-New managed spawners belong to the player who places them.
-
 - `OWNER_ONLY`: owner/admin can inspect, manage and break.
 - `PUBLIC_USE`: everyone may inspect/use; only owner/admin may manage or break.
 - `PUBLIC`: everyone may inspect/use/break; only owner/admin may change tier/access.
-
-Right-click a managed spawner to open its control GUI. The GUI shows creature, owner, tier tuning, lifetime spawns, access policy and next-tier upgrade cost.
 
 ## Tiers and upgrades
 
 Five conservative tiers ship by default. A tier controls minimum/maximum spawn delay, spawn count, native nearby-entity cap, required player range and spawn range.
 
-`managed.nearby-stack-cap.maximum-amount` is separate from tier `max-nearby-entities`: the former is a logical WildStacker-aware local population guard; the latter remains the existing native/physical spawner tuning.
-
-Upgrades consume the exact PDC-backed Spawner Essence item. The transaction validates access and inventory first, reserves Essence, applies registry + physical state, and rolls back/refunds if physical application fails.
+Upgrades consume the exact PDC-backed Spawner Essence item. The transaction validates access and inventory first, reserves Essence, applies registry + physical state, and rolls back/refunds if physical application fails. A powered spawner is immediately re-reconciled after a physical tier/access update so its redstone lock remains effective.
 
 ## Spawner provenance
 
@@ -70,19 +102,20 @@ Downstream Plexon plugins should consume `PlexonSpawnersApi` instead of lore che
 
 ## Persistence and performance
 
-The runtime deliberately avoids per-spawner scheduling:
+The runtime is deliberately bounded:
 
 - one in-memory block index;
 - one chunk index;
 - one shared persistence coordinator;
 - one single-thread snapshot writer;
+- one shared redstone-lock reconciliation task over loaded managed spawners;
 - coalesced dirty revisions;
 - atomic file replacement;
 - chunk reconciliation only for already indexed managed records;
 - nearby stack-cap checks only on managed spawn attempts, using a bounded local query;
-- cached WildStacker reflection, with no method discovery per nearby entity.
+- cached WildStacker public-API reflection, with no method discovery per nearby entity.
 
-There are no global chunk/entity scans and no synchronous file writes in placement, break or spawn listeners. Shutdown cancels the coordinator before forcing the registry's final persistence flush.
+There are no global chunk/entity scans and no synchronous database/file writes in placement, break or spawn listeners.
 
 ## Recovery behavior
 
@@ -91,7 +124,7 @@ There are no global chunk/entity scans and no synchronous file writes in placeme
 - tier is preserved when a 3.x managed spawner is recovered;
 - 2.x schema-1 managed spawner items remain readable and map to tier 1;
 - `EntityType.UNKNOWN` is rejected from managed records/items and invalid UNKNOWN physical breaks fail closed;
-- WildStacker compatibility remains fail closed and removes only one unit when its provider safely accepts the operation.
+- WildStacker compatibility remains fail closed and removes only one spawner unit when its provider safely accepts the operation.
 
 ## Core modes
 
@@ -102,7 +135,7 @@ PlexonSpawners supports PlexonCore 2.0.4 and Core API range `>=1.0 <3.0`. When C
 - Paper 26.2 build 121 or compatible fork
 - Java 25
 - PlexonCore 2.0.4 recommended/current ecosystem baseline
-- WildStacker optional; its standard spawner-override mode is the primary stack-cap integration path
+- WildStacker optional; its standard spawner-override flow is the primary exact stacked-output integration path
 
 ## Commands
 
@@ -138,20 +171,22 @@ The 3.x API exposes managed-spawner lookup/snapshots, tier-aware item creation a
 
 ## Migration
 
-Read `docs/MIGRATION_3_0.md` when upgrading from 2.3.1 and `docs/MIGRATION_3_1.md` when moving from 3.0.0 to 3.1.0. Existing 3.0 configuration is migrated additively to config schema 6; administrator customizations are not rewritten.
+- `docs/MIGRATION_3_0.md`: upgrade from the 2.3 line to managed 3.0.
+- `docs/MIGRATION_3_1.md`: logical nearby stack cap and config visibility fixes.
+- `docs/MIGRATION_3_2.md`: WildStacker stacked-output preservation, runtime status and redstone lock.
 
-Stable rollback for 3.1.0 is `v3.0.0` at `df5ba1970add67a46dc1afc0d844578144a88df1`, JAR SHA-256 `61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564`. The managed persistence schema remains 1 and the managed item schema remains 2.
+3.2 advances configuration schema to 7. Managed persistence remains schema 1 and managed items remain schema 2.
+
+Stable rollback for the 3.2 candidate is `v3.1.1` at `e9c50532ba0c227153ddb69f70a073e04d326a01`, JAR SHA-256 `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`.
 
 ## Building and release verification
 
-CI provisions the immutable PlexonCore 2.0.4 API using a pinned SHA-256 and runs the full Gradle test/check/JAR contract. Stable publication is restricted to `release/stable` when it points to exact current `main`.
+CI provisions the immutable PlexonCore 2.0.4 API using its pinned SHA-256 and runs the full Gradle test/check/JAR contract.
 
-The stable runtime artifact is:
+The 3.2 candidate runtime artifact is:
 
 ```text
-build/libs/PlexonSpawners-3.1.0.jar
+build/libs/PlexonSpawners-3.2.0-rc.1.jar
 ```
 
-The GitHub stable release publishes the JAR, `SHA256SUMS.txt`, `TEST_SUMMARY.txt` and `PROVENANCE.txt`, downloads all public release assets again, verifies the checksum, exact source SHA, stable baseline and distribution contract, and only then completes.
-
-GitHub source/build certification is separate from live PlexonCraft runtime certification. Live startup, managed placement/break, `x99` cap/resume, different-type isolation, overlapping spawners, stacked spawners, restart and MSPT/TPS checks are not inferred from CI; release provenance records `runtime_certification=NOT_EXECUTED` unless that operational evidence has been supplied.
+GitHub source/build certification is separate from live PlexonCraft runtime certification. The 3.2 RC must still be verified on the production WildStacker configuration for stacked output, 97 -> 99 style cap trimming, automatic resume, redstone freeze/unfreeze, timer display, chunk unload/reload, restart and farm TPS/MSPT before stable promotion.

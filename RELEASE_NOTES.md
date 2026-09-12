@@ -1,36 +1,46 @@
-# PlexonSpawners 3.1.1
+# PlexonSpawners 3.2.0-rc.1
 
-`3.1.1` is a stable configuration-visibility hotfix for Paper 26.2 / Java 25 / PlexonCore 2.0.4.
+`3.2.0-rc.1` is the WildStacker runtime-compatibility, live-status and redstone-lock candidate for Paper 26.2 / Java 25 / PlexonCore 2.0.4.
 
-## Fixed
+## WildStacker output
 
-Existing installations could retain a sparse physical `config.yml` even though the bundled defaults contained the complete configuration. Bukkit resolves missing values through those defaults, so normal `contains(path)` checks could report a key as available while it was still absent from the file on disk.
+Managed spawners now preserve WildStacker's stacked output through the exact nearby logical-cap path. A near-cap cycle no longer intentionally degrades into loose one-by-one mobs: PlexonSpawners blocks an unsafe direct merge, allows WildStacker to build its pending stacked entity, and trims that logical stack to the exact remaining capacity before it enters the world.
 
-This made the 3.1 stack-cap settings effectively hidden on upgraded servers. 3.1.1 detects missing explicit values and materializes bundled defaults into the physical configuration without replacing administrator overrides.
+With a cap of 99, a population of 97 and a pending x4 contribution can therefore become a WildStacker x2 output and stop at exactly 99.
 
-After first startup, the file exposes the full managed-spawner configuration including:
+The integration remains automatic and optional. If WildStacker is absent, physical entities count normally. If WildStacker is detected but its required public API degrades, stack-sensitive operations fail closed.
+
+## Runtime status
+
+The managed-spawner GUI now reports the current ticks (and approximate seconds) until next spawn, redstone lock/signal state, WildStacker output state and logical spawner amount, plus the configured logical cap/radius. Click the status item to refresh the live values.
+
+## Redstone lock
+
+Schema 7 adds:
 
 ```yaml
 managed:
-  nearby-stack-cap:
+  redstone-lock:
     enabled: true
-    radius: 8.0
-    maximum-amount: 99
-    same-type-only: true
+    poll-interval-ticks: 20
 ```
 
-The behavior remains unchanged: WildStacker logical amounts are counted, spawning pauses at the configured threshold, and automatically becomes eligible again when the nearby logical population falls below it.
+Powered managed spawners freeze their countdown. The exact pre-lock delay is retained in memory and physical PDC, an internal hold delay prevents ticking into a spawn, and removing power restores the frozen countdown. Chunk unload and orderly shutdown restore the physical timer, while PDC provides interrupted-runtime recovery data.
+
+The implementation uses one shared loaded-spawner reconciliation task, redstone/block event reconciliation and final spawn-time safety gates; it does not schedule one repeating task per spawner.
 
 ## Compatibility
 
-- Configuration schema: unchanged at 6
-- Managed persistence schema: unchanged at 1
-- Managed item schema: unchanged at 2
-- Existing custom configuration values are preserved
-- No database migration is required
-- Stable rollback: `v3.1.0` at `8aaf1b7078edf5e9076af02035d204e123b3958a`
-- Rollback JAR SHA-256: `00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65`
+- Configuration schema: `7`
+- Managed persistence schema: unchanged at `1`
+- Managed item schema: unchanged at `2`
+- Existing custom configuration values remain authoritative
+- No managed database migration is required
+- Stable rollback: `v3.1.1` at `e9c50532ba0c227153ddb69f70a073e04d326a01`
+- Rollback JAR SHA-256: `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`
 
-GitHub source/build certification is distinct from live PlexonCraft runtime certification.
+See `docs/MIGRATION_3_2.md` before deployment.
+
+GitHub source/build certification is distinct from live PlexonCraft runtime certification. This RC still requires in-game validation against the production WildStacker configuration before stable promotion.
 
 **Runtime certification: NOT EXECUTED**

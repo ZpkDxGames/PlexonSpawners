@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.2.0-rc.1 - WildStacker Runtime Compatibility & Redstone Control Candidate
+
+- Preserved WildStacker's stacked-spawner output through the exact logical nearby-cap path instead of intentionally degrading near-cap cycles to loose entities.
+- Added cached public-API `StackedEntity#setStackAmount(...)` access so a pending WildStacker stack can be trimmed to the exact remaining logical capacity before world admission.
+- Continued cancelling unsafe direct `EntityStackEvent` merges near the cap, allowing WildStacker to construct a fresh stacked entity instead.
+- Added a managed redstone lock that freezes the live spawn countdown under direct or indirect power and restores the same countdown when power is removed.
+- Added PDC-backed frozen-delay recovery plus chunk-unload/plugin-shutdown restoration so the internal hold delay is not treated as the real countdown.
+- Added one shared loaded-managed-spawner redstone reconciliation task; no per-spawner repeating scheduler is introduced.
+- Added Paper/Bukkit spawn-time redstone safety gates and immediate reconciliation after managed placement/tier updates.
+- Added a Runtime Status GUI item showing next-spawn ticks/seconds, redstone lock/signal, WildStacker output state/logical spawner amount and logical cap/radius.
+- Advanced configuration schema from 6 to 7 with `managed.redstone-lock.enabled` and `managed.redstone-lock.poll-interval-ticks`.
+- Preserved managed persistence schema 1, managed item schema 2, ownership/access, tier tuning, Essence, provenance and existing 3.1 logical-cap semantics.
+- Added regression contracts for stacked near-cap output, redstone freeze/PDC recovery, live runtime status and schema-7 config materialization.
+- Added exact-current-main prerelease publication for `v3.2.0-rc.1` with immutable JAR/checksum/test/provenance evidence.
+- Stable rollback remains `v3.1.1` (`e9c50532ba0c227153ddb69f70a073e04d326a01`), JAR SHA-256 `5dadb49f91b40d24a3d4ff17acb7f2a5f96fdfb8d01854eafefb6d520ffb310c`.
+
+Live PlexonCraft runtime certification is required before stable promotion and is recorded as `NOT_EXECUTED` for this source candidate.
+
 ## 3.1.1 - Stable Configuration Visibility Hotfix
 
 - Fixed upgraded installations keeping a sparse physical `config.yml` while Bukkit silently resolved missing values from bundled defaults.

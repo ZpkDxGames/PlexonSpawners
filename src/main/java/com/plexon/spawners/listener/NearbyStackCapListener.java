@@ -44,8 +44,9 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
     }
 
     /**
-     * Paper's pre-spawn hook provides a unit-granular safety net. During a WildStacker
-     * overridden cycle, the active context reserves exactly the remaining capacity.
+     * Paper's pre-spawn hook provides an early safety net. For WildStacker's
+     * overridden granular cycle, capacity is consumed later at SpawnerSpawnEvent,
+     * after WildStacker has assigned the pending entity's real logical stack amount.
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPreSpawnerSpawn(final PreSpawnerSpawnEvent event) {
@@ -65,8 +66,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             if (cycle.mode == NearbyStackCapPolicy.Decision.FAST_PATH) {
                 return;
             }
-            if (cycle.remainingCapacity > 0) {
-                cycle.remainingCapacity--;
+            if (cycle.mode == NearbyStackCapPolicy.Decision.GRANULAR && cycle.remainingCapacity > 0) {
                 return;
             }
             block(event);
@@ -114,8 +114,11 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
     }
 
     /**
-     * Covers WildStacker's non-overridden Bukkit SpawnerSpawnEvent flow. PlexonSpawners
-     * loads first, and this LOWEST listener cancels before WildStacker's LOWEST handler.
+     * Covers both WildStacker's overridden pending-entity path and its conservative
+     * non-overridden Bukkit fallback. In the overridden granular path, the pending
+     * WildStacker entity already has its logical stack amount before this event fires,
+     * allowing PlexonSpawners to trim it to the exact remaining cap without spawning
+     * loose mobs.
      */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onSpawnerSpawn(final SpawnerSpawnEvent event) {
@@ -135,6 +138,18 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
 
         final CycleContext cycle = currentCycle(spawnerLocation, managed.type());
         if (cycle != null) {
+            if (cycle.mode == NearbyStackCapPolicy.Decision.FAST_PATH) {
+                return;
+            }
+            if (cycle.mode == NearbyStackCapPolicy.Decision.GRANULAR) {
+                if (event.getEntity() instanceof LivingEntity living) {
+                    applyGranularStackBudget(event, living, cycle);
+                } else {
+                    cancelSpawnerSpawn(event, true);
+                }
+                return;
+            }
+            cancelSpawnerSpawn(event, cycle.mode == NearbyStackCapPolicy.Decision.FAIL_CLOSED);
             return;
         }
 
@@ -227,7 +242,17 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             counters.nearbyStackCapBlocked();
             return false;
         }
-        return decision == NearbyStackCapPolicy.Decision.FAST_PATH;
+        if (decision == NearbyStackCapPolicy.Decision.FAIL_CLOSED) {
+            return false;
+        }
+
+        /*
+         * GRANULAR intentionally remains stacked. If WildStacker planned to merge
+         * directly into an existing target, EntityStackEvent is cancelled so it falls
+         * back to spawning a fresh stacked entity. SpawnerSpawnEvent then trims that
+         * pending stack to the exact remaining logical capacity before world admission.
+         */
+        return true;
     }
 
     /** Called reflectively before WildStacker's direct targetEntity.increaseStackAmount path. */
@@ -242,6 +267,40 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             return false;
         }
         return cycle.mode != NearbyStackCapPolicy.Decision.FAST_PATH;
+    }
+
+    private void applyGranularStackBudget(
+        final SpawnerSpawnEvent event,
+        final LivingEntity pendingEntity,
+        final CycleContext cycle
+    ) {
+        if (cycle.remainingCapacity <= 0) {
+            cancelSpawnerSpawn(event, false);
+            return;
+        }
+
+        final WildStackerCompat.Amount pendingAmount = wildStacker.getLogicalEntityAmount(pendingEntity);
+        if (pendingAmount.result() != WildStackerCompat.Result.SUCCESS) {
+            cancelSpawnerSpawn(event, true);
+            return;
+        }
+        counters.nearbyStackCapWildStackerLookup();
+
+        final int logicalAmount = Math.max(1, pendingAmount.amount());
+        final int allowed = Math.min(logicalAmount, cycle.remainingCapacity);
+        if (allowed <= 0) {
+            cancelSpawnerSpawn(event, false);
+            return;
+        }
+
+        if (allowed < logicalAmount) {
+            final WildStackerCompat.Result resized = wildStacker.resizeLogicalEntity(pendingEntity, allowed);
+            if (resized != WildStackerCompat.Result.SUCCESS) {
+                cancelSpawnerSpawn(event, true);
+                return;
+            }
+        }
+        cycle.remainingCapacity -= allowed;
     }
 
     private boolean enabled() {

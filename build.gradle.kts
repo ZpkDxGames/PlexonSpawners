@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.1.1"
+version = "3.2.0-rc.1"
 
 val pluginVersion = version.toString()
 
@@ -87,10 +87,13 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class",
                 "com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class",
                 "com/plexon/spawners/integration/core/CoreBridge.class",
+                "com/plexon/spawners/compat/WildStackerCompat.class",
                 "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
                 "com/plexon/spawners/managed/SpawnerOriginService.class",
                 "com/plexon/spawners/managed/NearbyStackCapPolicy.class",
+                "com/plexon/spawners/managed/RedstoneSpawnerLockService.class",
                 "com/plexon/spawners/config/NearbyStackCapSettings.class",
+                "com/plexon/spawners/config/RedstoneLockSettings.class",
                 "com/plexon/spawners/listener/NearbyStackCapListener.class",
                 "com/plexon/spawners/gui/SpawnerControlGui.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }

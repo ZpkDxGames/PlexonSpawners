@@ -1,15 +1,17 @@
-name: Build
+name: Prerelease
 
 on:
   push:
-    branches: ['**']
-    tags-ignore: ['v*']
-  pull_request:
-    branches: [main]
+    branches: [release/candidate]
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
+  actions: read
+
+concurrency:
+  group: plexonspawners-prerelease
+  cancel-in-progress: false
 
 env:
   BASELINE_STABLE_TAG: 'v3.1.1'
@@ -19,11 +21,11 @@ env:
   CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
 
 jobs:
-  verify:
+  prerelease:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
-      - name: Checkout exact source
+      - name: Checkout exact candidate source
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -42,20 +44,39 @@ jobs:
       - name: Provision verified PlexonCore API
         run: bash scripts/provision-core.sh
 
-      - name: Resolve version and prove stable lineage
-        id: meta
+      - name: Resolve candidate version
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
           test -n "$VERSION"
+          [[ "$VERSION" == *-rc.* ]] || { echo 'Candidate version must contain -rc.' >&2; exit 1; }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "RELEASE_TAG=v${VERSION}" >> "$GITHUB_ENV"
+
+      - name: Verify exact candidate boundary
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF_NAME" = 'release/candidate'
+          main_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$GITHUB_SHA" = "$main_sha"
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
           grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
           grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
-          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          test -s ".release/RELEASE_NOTES_${VERSION}.md"
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG already exists; refusing to move a prerelease tag." >&2
+            exit 1
+          fi
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG release already exists; refusing replacement." >&2
+            exit 1
+          fi
 
-      - name: Full source verification
+      - name: Rebuild and test exact candidate source
         run: gradle clean test check jar --no-daemon
 
       - name: Build exact test summary
@@ -85,7 +106,7 @@ jobs:
           print(totals)
           PY
 
-      - name: Verify distribution
+      - name: Verify exact distribution
         shell: bash
         run: |
           set -euo pipefail
@@ -106,7 +127,6 @@ jobs:
             com/plexon/spawners/managed/NearbyStackCapPolicy.class \
             com/plexon/spawners/managed/RedstoneSpawnerLockService.class \
             com/plexon/spawners/listener/NearbyStackCapListener.class \
-            com/plexon/spawners/listener/SpawnerChunkListener.class \
             com/plexon/spawners/gui/SpawnerControlGui.class; do
             grep -qx "$required" build/release-evidence/jar-contents.txt
           done
@@ -120,7 +140,7 @@ jobs:
           fi
           (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
 
-      - name: Write exact provenance
+      - name: Build exact prerelease evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -154,33 +174,78 @@ jobs:
           stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
           jar_size=$size
           jar_sha256=$digest
-          unknown_entity_guard=PASS
-          managed_identity_reconciliation=PASS
-          essence_upgrade_rollback=PASS
-          bounded_persistence_writer=PASS
+          github_source_certification=PASS
           runtime_certification=NOT_EXECUTED
           EOF
 
-      - name: Check source whitespace
+      - name: Publish GitHub prerelease
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          git diff --check "$(git merge-base HEAD origin/main)" HEAD
+          gh release create "$RELEASE_TAG" \
+            "build/libs/PlexonSpawners-${VERSION}.jar" \
+            build/libs/SHA256SUMS.txt \
+            build/release-evidence/TEST_SUMMARY.txt \
+            build/release-evidence/PROVENANCE.txt \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "PlexonSpawners ${VERSION}" \
+            --notes-file ".release/RELEASE_NOTES_${VERSION}.md" \
+            --prerelease
 
-      - name: Upload verified build
+      - name: Verify published prerelease
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" --jq '.object.sha')"
+          test "$tag_sha" = "$GITHUB_SHA"
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,isPrerelease,targetCommitish,assets > build/release-evidence/release.json
+          python3 - <<'PY'
+          import json, os
+          data=json.load(open('build/release-evidence/release.json', encoding='utf-8'))
+          assert data['tagName'] == os.environ['RELEASE_TAG']
+          assert data['isPrerelease'] is True
+          assert data['targetCommitish'] == os.environ['GITHUB_SHA']
+          names={asset['name'] for asset in data['assets']}
+          expected={f"PlexonSpawners-{os.environ['VERSION']}.jar", 'SHA256SUMS.txt', 'TEST_SUMMARY.txt', 'PROVENANCE.txt'}
+          assert names == expected, (names, expected)
+          PY
+          rm -rf published
+          mkdir published
+          gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir published \
+            --pattern "PlexonSpawners-${VERSION}.jar" \
+            --pattern 'SHA256SUMS.txt' \
+            --pattern 'TEST_SUMMARY.txt' \
+            --pattern 'PROVENANCE.txt'
+          test "$(find published -maxdepth 1 -type f | wc -l)" -eq 4
+          (cd published && sha256sum --check SHA256SUMS.txt)
+          grep -Fx "repository=$GITHUB_REPOSITORY" published/PROVENANCE.txt
+          grep -Fx "source_sha=$GITHUB_SHA" published/PROVENANCE.txt
+          grep -Fx "version=$VERSION" published/PROVENANCE.txt
+          grep -Fx 'config_schema=7' published/PROVENANCE.txt
+          grep -Fx 'wildstacker_pending_stack_resize=PASS' published/PROVENANCE.txt
+          grep -Fx 'redstone_lock_countdown_freeze=PASS' published/PROVENANCE.txt
+          grep -Fx 'redstone_lock_pdc_recovery=PASS' published/PROVENANCE.txt
+          grep -Fx 'runtime_status_gui=PASS' published/PROVENANCE.txt
+          grep -Fx "stable_baseline_tag=$BASELINE_STABLE_TAG" published/PROVENANCE.txt
+          grep -Fx "stable_baseline_sha=$BASELINE_STABLE_SHA" published/PROVENANCE.txt
+          grep -Fx "stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256" published/PROVENANCE.txt
+          grep -Fx 'github_source_certification=PASS' published/PROVENANCE.txt
+          grep -Fx 'runtime_certification=NOT_EXECUTED' published/PROVENANCE.txt
+          grep -Eq '^TEST_COUNT=[1-9][0-9]* FAILURES=0 ERRORS=0 SKIPPED=0$' published/TEST_SUMMARY.txt
+
+      - name: Upload prerelease verification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: PlexonSpawners-${{ steps.meta.outputs.version }}-${{ github.sha }}
+          name: PlexonSpawners-prerelease-${{ github.sha }}
           path: |
-            build/libs/PlexonSpawners-${{ steps.meta.outputs.version }}.jar
-            build/libs/SHA256SUMS.txt
-            build/release-evidence/TEST_SUMMARY.txt
-            build/release-evidence/PROVENANCE.txt
+            published/PlexonSpawners-*.jar
+            published/SHA256SUMS.txt
+            published/TEST_SUMMARY.txt
+            published/PROVENANCE.txt
           if-no-files-found: error
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ github.sha }}
-          path: build/test-results/test/
