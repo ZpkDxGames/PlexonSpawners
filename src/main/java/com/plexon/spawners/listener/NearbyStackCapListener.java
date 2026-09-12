@@ -266,7 +266,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             if (!(entity instanceof LivingEntity living)) {
                 continue;
             }
-            if (settings.sameTypeOnly() && living.getType() != type) {
+            if (!NearbyStackCapPolicy.contributes(settings.sameTypeOnly(), living.getType() == type)) {
                 continue;
             }
 
@@ -279,8 +279,11 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
                 counters.nearbyStackCapWildStackerLookup();
             }
             final int contribution = Math.max(1, amount.amount());
-            final long summed = (long) logicalAmount + contribution;
-            logicalAmount = (int) Math.min(settings.maximumAmount(), summed);
+            logicalAmount = NearbyStackCapPolicy.accumulateLogicalAmount(
+                logicalAmount,
+                contribution,
+                settings.maximumAmount()
+            );
             counters.nearbyStackCapLogicalEntitiesCounted(contribution);
             if (logicalAmount >= settings.maximumAmount()) {
                 break;

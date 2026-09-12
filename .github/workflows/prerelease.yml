@@ -40,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git fetch origin main --depth=1
+          git fetch origin main
           test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
           test -n "$VERSION"
@@ -58,7 +58,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          if git rev-parse "refs/tags/${TAG}" >/dev/null 2>&1; then
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null 2>&1; then
             echo "Tag ${TAG} already exists; refusing to move or replace it." >&2
             exit 1
           fi
@@ -128,7 +128,6 @@ jobs:
           digest="$(sha256sum "$JAR" | awk '{print $1}')"
           size="$(stat -c%s "$JAR")"
           printf '%s  %s\n' "$digest" "$(basename "$JAR")" > build/release-evidence/SHA256SUMS.txt
-          (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar")
           cat > build/release-evidence/PROVENANCE.txt <<EOF
           repository=$GITHUB_REPOSITORY
           source_sha=$GITHUB_SHA
@@ -197,7 +196,7 @@ jobs:
         with:
           name: PlexonSpawners-${{ github.sha }}-prerelease-evidence
           path: |
-            build/libs/PlexonSpawners-${{ env.VERSION }}.jar
+            build/libs/PlexonSpawners-*.jar
             build/release-evidence/SHA256SUMS.txt
             build/release-evidence/TEST_SUMMARY.txt
             build/release-evidence/PROVENANCE.txt

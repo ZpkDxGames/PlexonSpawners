@@ -37,4 +37,18 @@ public final class NearbyStackCapPolicy {
         final long product = boundedSpawnCount * boundedStackAmount;
         return Math.min(Integer.MAX_VALUE, product);
     }
+
+    public static int accumulateLogicalAmount(
+        final int currentLogicalAmount,
+        final int entityLogicalAmount,
+        final int maximumAmount
+    ) {
+        final long current = Math.max(0, currentLogicalAmount);
+        final long contribution = Math.max(1, entityLogicalAmount);
+        return (int) Math.min(Math.max(1, maximumAmount), current + contribution);
+    }
+
+    public static boolean contributes(final boolean sameTypeOnly, final boolean sameEntityType) {
+        return !sameTypeOnly || sameEntityType;
+    }
 }
