@@ -29,6 +29,7 @@ class NearbyStackCapContractTest {
         final String policy = source("managed/NearbyStackCapPolicy.java");
         assertTrue(compat.contains("SpawnerStackedEntitySpawnEvent"));
         assertTrue(compat.contains("EntityStackEvent"));
+        assertTrue(compat.contains("entityStackGetEntity = entityStackClass.getMethod(\"getEntity\")"));
         assertTrue(compat.contains("setShouldBeStacked"));
         assertTrue(compat.contains("setCancelled"));
         assertTrue(listener.contains("shouldCancelEntityStack"));
@@ -37,7 +38,7 @@ class NearbyStackCapContractTest {
     }
 
     @Test
-    void reflectionDiscoveryIsLifecycleCached() throws Exception {
+    void reflectionDiscoveryIsLifecycleCachedAndDegradationUnhooksDynamicEvents() throws Exception {
         final String compat = source("compat/WildStackerCompat.java");
         assertTrue(compat.contains("getMethod(\"getEntityAmount\""));
         assertTrue(compat.contains("getMethod(\"getSpawnersAmount\""));
@@ -45,6 +46,13 @@ class NearbyStackCapContractTest {
         assertTrue(compat.contains("onPluginEnable"));
         assertTrue(compat.contains("onPluginDisable"));
         assertFalse(compat.contains("Class.forName(API_CLASS, true, loader);\n            return"));
+
+        final int degradeStart = compat.indexOf("private void degrade(final Throwable throwable)");
+        final int warnStart = compat.indexOf("private void warnOnce", degradeStart);
+        assertTrue(degradeStart >= 0 && warnStart > degradeStart);
+        final String degrade = compat.substring(degradeStart, warnStart);
+        assertTrue(degrade.contains("HandlerList.unregisterAll(dynamicListener)"));
+        assertTrue(degrade.contains("clearEventAccessors()"));
     }
 
     @Test

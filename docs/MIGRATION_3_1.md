@@ -1,6 +1,6 @@
 # PlexonSpawners 3.1 Migration
 
-This document covers upgrades from stable `3.0.0` to the `3.1.x` line.
+This document covers upgrades from stable `3.0.0` to stable `3.1.0`.
 
 ## Compatibility
 
@@ -36,21 +36,23 @@ WildStacker remains optional. Without it, matching physical living entities coun
 
 The standard WildStacker `spawners.spawners-override.enabled: true` flow is the primary integration path. When the maximum possible cycle contribution fits, the optimized stacked flow is left untouched. Near the threshold, PlexonSpawners switches that cycle to a unit-granular path, cancels the direct entity-stack event, and lets Paper pre-spawn gating consume only the remaining capacity.
 
-If WildStacker is detected but its required API is degraded, the guard fails closed. It never falls back to counting an unknown WildStacker stack as one.
+If WildStacker is detected but its required API is degraded, the guard fails closed. It never falls back to counting an unknown WildStacker stack as one. Dynamic WildStacker guard hooks are unregistered immediately when compatibility degrades.
 
 On a non-overridden Bukkit spawner flow where a partial pending contribution is not safely exposed, an at-risk whole cycle is cancelled rather than knowingly overshooting the configured cap.
 
 ## Deployment
 
 1. Stop PlexonCraft and back up `plugins/PlexonSpawners/` plus the current `PlexonSpawners-3.0.0.jar`.
-2. Install the `3.1.0-rc.1` candidate JAR.
+2. Install the stable `PlexonSpawners-3.1.0.jar` from GitHub Releases.
 3. Start Paper 26.2 and verify PlexonCore, PlexonSpawners and WildStacker load without compatibility degradation.
 4. Confirm config schema 6 contains the new section with the intended local values.
-5. Runtime-test same-type cap/resume, different-type isolation, overlapping managed spawners, WildStacker stacked spawners and restart persistence.
-6. Observe TPS/MSPT under an active farm before considering stable promotion.
+5. If performing live operational certification, test same-type cap/resume, different-type isolation, overlapping managed spawners, WildStacker stacked spawners and restart persistence.
+6. Observe TPS/MSPT under an active farm if production performance evidence is required.
 
 ## Rollback
 
-The release-candidate rollback is stable `v3.0.0`. Because 3.1 does not change the managed persistence or item schemas, normal rollback is source-compatible; still restore the pre-upgrade plugin-data backup if any operational test changed production state.
+Stable rollback is `v3.0.0` at `df5ba1970add67a46dc1afc0d844578144a88df1`; its JAR SHA-256 is `61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564`.
 
-Runtime certification is not implied by unit tests, GitHub Actions, or release publication.
+Because 3.1 does not change the managed persistence or item schemas, normal rollback is source-compatible. Restore the pre-upgrade plugin-data backup if operational testing changed production state and an exact state rollback is required.
+
+GitHub source/build certification does not imply live runtime certification.

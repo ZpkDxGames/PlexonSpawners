@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.1.0-rc.1"
+version = "3.1.0"
 
 val pluginVersion = version.toString()
 
@@ -80,6 +80,7 @@ val verifyDistribution = tasks.register("verifyDistribution") {
         ZipFile(archive).use { zip ->
             listOf(
                 "plugin.yml",
+                "config.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
                 "com/plexon/spawners/api/PlexonSpawnersApi.class",
                 "com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class",

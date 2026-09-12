@@ -1,10 +1,8 @@
 # PlexonSpawners
 
-PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. Stable 3.0 adds durable managed-spawner identity, ownership/access, bounded tiers, Essence upgrades and first-party spawn provenance while preserving the 2.x Silk/Essence and WildStacker safety contract.
+PlexonSpawners is the first-party PlexonCraft managed-spawner system for Paper 26.2 / Java 25. Stable 3.1 adds a WildStacker-aware nearby logical population cap while preserving the 3.0 managed-spawner identity, ownership/access, tier, Essence, persistence and provenance contracts.
 
-Current stable version: `3.0.0`.
-
-Current release candidate: `3.1.0-rc.1`.
+Current stable version: `3.1.0`.
 
 ## 3.1 nearby logical stack cap
 
@@ -25,11 +23,9 @@ The radius uses Bukkit's bounded axis-aligned nearby-entity query around the cen
 
 When the logical amount reaches 99, that managed spawner stops contributing. Once the population drops below 99, it becomes eligible automatically on the next spawn attempt. Multiple nearby managed spawners independently observe the same local population; different creature types do not block one another by default.
 
-The WildStacker bridge remains optional and reflection-cached. When WildStacker is absent, each matching physical living entity counts as one. When WildStacker is installed but its required API is degraded, the spawn guard fails closed rather than treating a large stack as one entity.
+The WildStacker bridge remains optional and reflection-cached. When WildStacker is absent, each matching physical living entity counts as one. When WildStacker is installed but its required API is degraded, the spawn guard fails closed rather than treating a large stack as one entity. Dynamic WildStacker guard hooks are unregistered immediately when compatibility degrades so a broken reflective path is not repeatedly invoked.
 
 WildStacker's standard `spawners.spawners-override.enabled: true` path is intercepted before its direct `StackedEntity#increaseStackAmount(...)` contribution. A whole contribution takes the fast path only when its maximum possible amount fits under the cap. Near the ceiling, direct stack growth is cancelled and Paper `PreSpawnerSpawnEvent` is used as a unit-granular gate so `97 / 99` can reach 99 without becoming 104. On a non-overridden path where a safe partial contribution is not exposed by the public event contract, PlexonSpawners rejects the whole at-risk cycle rather than knowingly allowing overshoot.
-
-The release candidate is intended for live verification with PlexonCraft's supported/default WildStacker override mode before stable promotion.
 
 ## 3.0 product model
 
@@ -106,7 +102,7 @@ PlexonSpawners supports PlexonCore 2.0.4 and Core API range `>=1.0 <3.0`. When C
 - Paper 26.2 build 121 or compatible fork
 - Java 25
 - PlexonCore 2.0.4 recommended/current ecosystem baseline
-- WildStacker optional; its default spawner-override mode is the target stack-cap integration path
+- WildStacker optional; its standard spawner-override mode is the primary stack-cap integration path
 
 ## Commands
 
@@ -114,7 +110,7 @@ PlexonSpawners supports PlexonCore 2.0.4 and Core API range `>=1.0 <3.0`. When C
 - `/pspawners info`
 - `/pspawners diagnostics`
 - `/pspawners reload`
-- `/pspawners give <player> <mob> [amount]`
+- `/pspawners give <player> <mob> [amount] [tier]`
 - `/pspawners essence set`
 - `/pspawners essence give <player> [amount]`
 
@@ -138,24 +134,24 @@ The synchronous public events remain:
 - `PlexonSpawnerEssenceAwardedEvent`
 - `PlexonSpawnerPlacedEvent`
 
-The 3.0 API additionally exposes managed-spawner lookup/snapshots, tier-aware item creation and spawn-origin lookup. See `docs/API.md`.
+The 3.x API exposes managed-spawner lookup/snapshots, tier-aware item creation and spawn-origin lookup. See `docs/API.md`.
 
 ## Migration
 
-Read `docs/MIGRATION_3_0.md` when upgrading from 2.3.1 and `docs/MIGRATION_3_1.md` when moving from 3.0.0 to 3.1.x. Existing 3.0 configuration is migrated additively to config schema 6; administrator customizations are not rewritten.
+Read `docs/MIGRATION_3_0.md` when upgrading from 2.3.1 and `docs/MIGRATION_3_1.md` when moving from 3.0.0 to 3.1.0. Existing 3.0 configuration is migrated additively to config schema 6; administrator customizations are not rewritten.
 
-Stable rollback remains `v3.0.0` for the 3.1 release-candidate line. The managed persistence schema remains 1 and the managed item schema remains 2.
+Stable rollback for 3.1.0 is `v3.0.0` at `df5ba1970add67a46dc1afc0d844578144a88df1`, JAR SHA-256 `61978a50fcc39ccb2b025e2fe4b49ca8c28b2e849bdd9fb9d0eab9d89771e564`. The managed persistence schema remains 1 and the managed item schema remains 2.
 
 ## Building and release verification
 
-CI provisions the immutable PlexonCore 2.0.4 API using a pinned SHA-256 and runs the full Gradle test/check/JAR contract. Stable publication remains restricted to `release/stable`; the 3.1 candidate uses the dedicated prerelease workflow and must target exact current `main` after merge.
+CI provisions the immutable PlexonCore 2.0.4 API using a pinned SHA-256 and runs the full Gradle test/check/JAR contract. Stable publication is restricted to `release/stable` when it points to exact current `main`.
 
-The candidate runtime artifact is:
+The stable runtime artifact is:
 
 ```text
-build/libs/PlexonSpawners-3.1.0-rc.1.jar
+build/libs/PlexonSpawners-3.1.0.jar
 ```
 
-The GitHub prerelease publishes the JAR, `SHA256SUMS.txt`, `TEST_SUMMARY.txt` and `PROVENANCE.txt`, then downloads and verifies those public assets before the workflow can pass.
+The GitHub stable release publishes the JAR, `SHA256SUMS.txt`, `TEST_SUMMARY.txt` and `PROVENANCE.txt`, downloads all public release assets again, verifies the checksum, exact source SHA, stable baseline and distribution contract, and only then completes.
 
-Live PlexonCraft startup, managed placement/break, `x99` cap/resume, different-type isolation, overlapping spawners, stacked spawners, restart and MSPT/TPS validation remain deployment follow-up checks. They are not inferred from CI; release provenance records `runtime_certification=NOT_EXECUTED` until real server evidence exists.
+GitHub source/build certification is separate from live PlexonCraft runtime certification. Live startup, managed placement/break, `x99` cap/resume, different-type isolation, overlapping spawners, stacked spawners, restart and MSPT/TPS checks are not inferred from CI; release provenance records `runtime_certification=NOT_EXECUTED` unless that operational evidence has been supplied.
