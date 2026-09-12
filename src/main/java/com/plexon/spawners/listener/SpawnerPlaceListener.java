@@ -19,6 +19,7 @@ import org.bukkit.Bukkit;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.World;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.EntityType;
 import org.bukkit.event.EventHandler;
@@ -84,10 +85,12 @@ public final class SpawnerPlaceListener implements Listener {
         }
 
         final int tier = Math.min(tuning.maxTier(), spawnerItemService.readSpawnerTier(event.getItemInHand()));
+        final int incomingAmount = logicalPlacementAmount(event);
         final ManagedSpawner record = ManagedSpawner.placed(
             event.getBlockPlaced().getWorld().getUID(),
             event.getBlockPlaced().getX(), event.getBlockPlaced().getY(), event.getBlockPlaced().getZ(),
-            type, event.getPlayer().getUniqueId(), tier, tuning.defaultAccess());
+            type, event.getPlayer().getUniqueId(), tier, tuning.defaultAccess()
+        ).withStackAmount(incomingAmount);
 
         final ManagedSpawner stackTarget = stackSettings.enabled()
             ? registry.findAutoStackTarget(event.getBlockPlaced().getLocation(), record, stackSettings)
@@ -120,58 +123,124 @@ public final class SpawnerPlaceListener implements Listener {
         if (type == null) {
             return;
         }
-        if (!(event.getBlockPlaced().getState() instanceof CreatureSpawner finalState)
-            || !stateService.isManaged(finalState)) {
+        if (!(event.getBlockPlaced().getState() instanceof CreatureSpawner placedState)
+            || !stateService.isManaged(placedState)) {
             return;
         }
 
-        ManagedSpawner finalRecord = pending;
-        final ManagedSpawner target = registry.findAutoStackTarget(event.getBlockPlaced().getLocation(), pending, stackSettings);
-        if (target != null) {
-            final NativeStackPolicy.MergeResult merge = NativeStackPolicy.merge(
-                target.stackAmount(), 1, stackSettings.maxStackSize());
-            if (merge.mergedAmount() == 1) {
-                final ManagedSpawner updated = registry.updateStackAmount(target.id(), merge.targetAmount());
-                if (updated != null && applyPhysical(updated)) {
-                    event.getBlockPlaced().setType(Material.AIR, false);
-                    finalRecord = updated;
-                    redstoneLocks.refresh(updated);
-                    displays.refresh(updated);
-                } else if (updated != null) {
-                    registry.updateStackAmount(target.id(), target.stackAmount());
+        int consumedAmount = stackSettings.enabled() ? pending.stackAmount() : 1;
+        Location successLocation = event.getBlockPlaced().getLocation();
+
+        if (stackSettings.enabled()) {
+            final ManagedSpawner target = registry.findAutoStackTarget(
+                event.getBlockPlaced().getLocation(), pending, stackSettings);
+            if (target != null) {
+                final NativeStackPolicy.MergeResult merge = NativeStackPolicy.merge(
+                    target.stackAmount(), pending.stackAmount(), stackSettings.maxStackSize());
+                if (merge.mergedAmount() > 0) {
+                    final ManagedSpawner updatedTarget = registry.updateStackAmount(target.id(), merge.targetAmount());
+                    if (updatedTarget == null || !applyPhysical(updatedTarget)) {
+                        if (updatedTarget != null) {
+                            registry.updateStackAmount(target.id(), target.stackAmount());
+                            applyPhysical(target);
+                        }
+                        handleMergeFailure(event, pending);
+                        return;
+                    }
+
+                    redstoneLocks.refresh(updatedTarget);
+                    displays.refresh(updatedTarget);
+                    successLocation = locationOf(updatedTarget);
+
+                    if (merge.remainder() == 0) {
+                        event.getBlockPlaced().setType(Material.AIR, false);
+                    } else if (hasRoomForNewPhysical(event)) {
+                        final ManagedSpawner remainderRecord = pending.withStackAmount(merge.remainder());
+                        if (!stateService.apply(placedState, remainderRecord, tuning.tier(remainderRecord.tier()))) {
+                            event.getBlockPlaced().setType(Material.AIR, false);
+                            consumedAmount = merge.mergedAmount();
+                        } else {
+                            registry.register(remainderRecord);
+                            redstoneLocks.refresh(remainderRecord);
+                            displays.refresh(remainderRecord);
+                            successLocation = event.getBlockPlaced().getLocation();
+                        }
+                    } else {
+                        // The compatible target accepted only part of the held amount and the
+                        // placed chunk cannot own another physical managed spawner. Keep the
+                        // unmerged remainder in the player's hand instead of deleting it.
+                        event.getBlockPlaced().setType(Material.AIR, false);
+                        consumedAmount = merge.mergedAmount();
+                    }
+                } else {
+                    registerStandalone(pending);
                 }
+            } else {
+                registerStandalone(pending);
             }
+
+            adjustHeldAmount(event, consumedAmount);
+        } else {
+            registerStandalone(pending);
         }
 
-        if (finalRecord.id().equals(pending.id())) {
-            registry.register(pending);
-            redstoneLocks.refresh(pending);
-            displays.refresh(pending);
-        }
-        consumeCreativeUnitIfConfigured(event);
         counters.managedPlacementSuccess();
-
-        if (!Bukkit.isPrimaryThread()) {
-            throw new IllegalStateException("PlexonSpawners placement events must fire on the primary server thread");
-        }
-        final String transactionId = UUID.randomUUID().toString();
-        Bukkit.getPluginManager().callEvent(new PlexonSpawnerPlacedEvent(
-            event.getPlayer(), type, event.getBlockPlaced().getLocation(), event.getItemInHand(),
-            transactionId + ":placed", transactionId));
+        firePlacedEvent(event, type, successLocation);
     }
 
-    private void consumeCreativeUnitIfConfigured(final BlockPlaceEvent event) {
-        if (event.getPlayer().getGameMode() != GameMode.CREATIVE || !stackSettings.creativeConsumeOnPlace()) {
+    private int logicalPlacementAmount(final BlockPlaceEvent event) {
+        if (!stackSettings.enabled()) {
+            return 1;
+        }
+        if (event.getPlayer().getGameMode() == GameMode.CREATIVE && !stackSettings.creativeConsumeOnPlace()) {
+            return 1;
+        }
+        return Math.max(1, Math.min(event.getItemInHand().getAmount(), stackSettings.maxStackSize()));
+    }
+
+    private void registerStandalone(final ManagedSpawner record) {
+        registry.register(record);
+        redstoneLocks.refresh(record);
+        displays.refresh(record);
+    }
+
+    private void handleMergeFailure(final BlockPlaceEvent event, final ManagedSpawner pending) {
+        if (hasRoomForNewPhysical(event)) {
+            registerStandalone(pending);
+            adjustHeldAmount(event, pending.stackAmount());
+            counters.managedPlacementSuccess();
+            firePlacedEvent(event, pending.type(), event.getBlockPlaced().getLocation());
             return;
         }
-        final ItemStack current = event.getItemInHand().clone();
-        final int remaining = current.getAmount() - 1;
+
+        event.getBlockPlaced().setType(Material.AIR, false);
+        adjustHeldAmount(event, 0);
+        event.getPlayer().sendMessage(miniMessage.deserialize(
+            "<!italic><#FF6B6B>The target stack could not be updated safely; no spawner units were consumed.</#FF6B6B>"));
+    }
+
+    private boolean hasRoomForNewPhysical(final BlockPlaceEvent event) {
+        return registry.countInChunk(event.getBlockPlaced().getChunk()) < tuning.maxManagedPerChunk();
+    }
+
+    /**
+     * Bukkit/Paper restores the pre-use ItemStack before BlockPlaceEvent and applies
+     * the vanilla one-item result only if plugins leave it untouched. Writing the
+     * exact remainder here therefore makes multi-unit native placement atomic and
+     * prevents the server from also subtracting a second unit after the event.
+     */
+    private void adjustHeldAmount(final BlockPlaceEvent event, final int consumedAmount) {
+        if (event.getPlayer().getGameMode() == GameMode.CREATIVE && !stackSettings.creativeConsumeOnPlace()) {
+            return;
+        }
+        final ItemStack source = event.getItemInHand().clone();
+        final int remaining = Math.max(0, source.getAmount() - Math.max(0, consumedAmount));
         final ItemStack replacement;
-        if (remaining <= 0) {
+        if (remaining == 0) {
             replacement = new ItemStack(Material.AIR);
         } else {
-            current.setAmount(remaining);
-            replacement = current;
+            source.setAmount(remaining);
+            replacement = source;
         }
         if (event.getHand() == EquipmentSlot.OFF_HAND) {
             event.getPlayer().getInventory().setItemInOffHand(replacement);
@@ -180,13 +249,33 @@ public final class SpawnerPlaceListener implements Listener {
         }
     }
 
+    private void firePlacedEvent(final BlockPlaceEvent event, final EntityType type, final Location location) {
+        if (!Bukkit.isPrimaryThread()) {
+            throw new IllegalStateException("PlexonSpawners placement events must fire on the primary server thread");
+        }
+        final String transactionId = UUID.randomUUID().toString();
+        Bukkit.getPluginManager().callEvent(new PlexonSpawnerPlacedEvent(
+            event.getPlayer(), type, location, event.getItemInHand(),
+            transactionId + ":placed", transactionId));
+    }
+
     private boolean applyPhysical(final ManagedSpawner record) {
-        final org.bukkit.World world = Bukkit.getWorld(record.worldId());
+        final World world = Bukkit.getWorld(record.worldId());
         if (world == null || !world.isChunkLoaded(record.x() >> 4, record.z() >> 4)) {
             return false;
         }
-        final Location location = new Location(world, record.x(), record.y(), record.z());
-        return stateService.applyAt(location, record, tuning.tier(record.tier()));
+        return stateService.applyAt(
+            new Location(world, record.x(), record.y(), record.z()),
+            record,
+            tuning.tier(record.tier())
+        );
+    }
+
+    private static Location locationOf(final ManagedSpawner record) {
+        final World world = Bukkit.getWorld(record.worldId());
+        return world == null
+            ? null
+            : new Location(world, record.x(), record.y(), record.z());
     }
 
     private record PlacementKey(UUID worldId, int x, int y, int z) {
