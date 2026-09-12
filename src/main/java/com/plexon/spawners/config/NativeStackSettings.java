@@ -124,7 +124,19 @@ public final class NativeStackSettings {
     public List<Integer> withdrawPresets() { return runtime.withdrawPresets(); }
     public boolean scaleWithStack() { return runtime.scaleWithStack(); }
     public SpawnMode spawnMode() { return runtime.spawnMode(); }
-    public int maxLogicalOutputPerCycle() { return runtime.maxLogicalOutputPerCycle(); }
+
+    /**
+     * Effective logical cycle ceiling. LINEAR intentionally has no configured
+     * cycle ceiling; downstream arithmetic still saturates at Integer.MAX_VALUE
+     * and the nearby logical cap remains authoritative when enabled.
+     */
+    public int maxLogicalOutputPerCycle() {
+        return runtime.spawnMode() == SpawnMode.LINEAR
+            ? Integer.MAX_VALUE
+            : runtime.maxLogicalOutputPerCycle();
+    }
+
+    public int configuredMaxLogicalOutputPerCycle() { return runtime.maxLogicalOutputPerCycle(); }
     public boolean respectNearbyLogicalCap() { return runtime.respectNearbyLogicalCap(); }
     public int vanillaPhysicalOutputCap() { return runtime.vanillaPhysicalOutputCap(); }
     public boolean showStackAmountOnItems() { return runtime.showStackAmountOnItems(); }
