@@ -4,6 +4,7 @@ import java.util.List;
 import net.kyori.adventure.text.minimessage.MiniMessage;
 import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
+import org.bukkit.configuration.Configuration;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
@@ -25,6 +26,7 @@ public final class EssenceService {
 
     public void reload() {
         final FileConfiguration config = plugin.getConfig();
+        materializeBundledDefaults(config);
         final ItemStack configured = config.getItemStack("essence.item");
         setRuntimeTemplate(configured == null || configured.getType().isAir() ? createDefault() : configured);
     }
@@ -77,6 +79,25 @@ public final class EssenceService {
         plugin.getConfig().set("essence.item", serialized);
         plugin.saveConfig();
         return true;
+    }
+
+    private void materializeBundledDefaults(final FileConfiguration config) {
+        final Configuration defaults = config.getDefaults();
+        if (defaults == null) {
+            return;
+        }
+
+        final boolean missingBundledDefaults = defaults.getValues(true).keySet().stream()
+            .anyMatch(path -> !config.contains(path, true));
+        if (!missingBundledDefaults) {
+            return;
+        }
+
+        config.options().copyDefaults(true);
+        plugin.saveConfig();
+        plugin.getLogger().info(
+            "Materialized missing bundled configuration defaults without overwriting existing values."
+        );
     }
 
     private void setRuntimeTemplate(final ItemStack source) {

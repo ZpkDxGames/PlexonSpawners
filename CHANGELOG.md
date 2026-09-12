@@ -1,5 +1,16 @@
 # Changelog
 
+## 3.1.1 - Stable Configuration Visibility Hotfix
+
+- Fixed upgraded installations keeping a sparse physical `config.yml` while Bukkit silently resolved missing values from bundled defaults.
+- Added explicit/default-aware detection so missing bundled keys are materialized into the file on disk without overwriting administrator values.
+- Ensures `managed.nearby-stack-cap` is visible and directly editable after first startup on 3.1.1.
+- Preserved configuration schema 6, managed persistence schema 1 and managed item schema 2.
+- Preserved the 3.1.0 WildStacker logical stack-cap behavior and runtime architecture unchanged.
+- Advanced the stable rollback baseline to `v3.1.0` (`8aaf1b7078edf5e9076af02035d204e123b3958a`), JAR SHA-256 `00281428501747d3ae16304a5e376006bde01a81f69181d4c327a65c71506d65`.
+
+GitHub source/build certification remains separate from live PlexonCraft runtime certification.
+
 ## 3.1.0 - Stable WildStacker Nearby Logical Stack Cap
 
 - Added `managed.nearby-stack-cap` with defaults `enabled: true`, `radius: 8.0`, `maximum-amount: 99`, and `same-type-only: true`.

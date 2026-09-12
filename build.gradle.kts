@@ -5,7 +5,7 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.1.0"
+version = "3.1.1"
 
 val pluginVersion = version.toString()
 
