@@ -64,7 +64,7 @@ class NativeStackReleaseContractTest {
     }
 
     @Test
-    void placementIsBoundedDeterministicCompatibilityAwareAndHonorsCreativeConsumption() throws Exception {
+    void placementMergesHeldAmountWithoutOverflowLossAndHonorsCreativeConsumption() throws Exception {
         final String registry = source("managed/ManagedSpawnerRegistry.java");
         final String placement = source("listener/SpawnerPlaceListener.java");
 
@@ -75,8 +75,12 @@ class NativeStackReleaseContractTest {
         assertTrue(registry.contains("settings.requireSameAccess()"));
         assertTrue(registry.contains("verticalAligned(placedLocation, candidate) ? 0 : 1"));
         assertTrue(registry.contains("thenComparingInt(ManagedSpawner::y)"));
-        assertTrue(placement.contains("NativeStackPolicy.merge"));
-        assertTrue(placement.contains("merge.mergedAmount() == 1"));
+        assertTrue(placement.contains("final int incomingAmount = logicalPlacementAmount(event)"));
+        assertTrue(placement.contains(".withStackAmount(incomingAmount)"));
+        assertTrue(placement.contains("target.stackAmount(), pending.stackAmount(), stackSettings.maxStackSize()"));
+        assertTrue(placement.contains("pending.withStackAmount(merge.remainder())"));
+        assertTrue(placement.contains("consumedAmount = merge.mergedAmount()"));
+        assertTrue(placement.contains("adjustHeldAmount(event, consumedAmount)"));
         assertTrue(placement.contains("stackSettings.creativeConsumeOnPlace()"));
         assertTrue(placement.contains("setItemInOffHand(replacement)"));
         assertTrue(placement.contains("setItemInMainHand(replacement)"));
@@ -102,14 +106,18 @@ class NativeStackReleaseContractTest {
     void spawnScalingUsesPlexonAmountBeforeCycleAndNearbyBounds() throws Exception {
         final String listener = source("listener/NearbyStackCapListener.java");
         final String policy = source("managed/NativeStackPolicy.java");
+        final String settings = source("config/NativeStackSettings.java");
 
         assertTrue(listener.contains("managed.stackAmount()"));
         assertTrue(listener.contains("stackSettings.maxLogicalOutputPerCycle()"));
         assertTrue(listener.contains("nearbyRemaining = NearbyStackCapPolicy.remainingCapacity"));
         assertTrue(listener.contains("final int allowed = Math.min(requested, nearbyRemaining)"));
         assertTrue(listener.contains("stackSettings.vanillaPhysicalOutputCap()"));
+        assertTrue(listener.contains("CreatureSpawnEvent.SpawnReason.SPAWNER"));
         assertTrue(policy.contains("(long) tierSpawnCount * stackAmount"));
         assertTrue(policy.contains("Math.min(cycleCap"));
+        assertTrue(settings.contains("runtime.spawnMode() == SpawnMode.LINEAR"));
+        assertTrue(settings.contains("? Integer.MAX_VALUE"));
         assertFalse(listener.contains("getLogicalSpawnerAmount"));
     }
 
