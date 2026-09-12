@@ -1,13 +1,13 @@
 # ============================================================================
-# PlexonSpawners 3.3.0 - Main Configuration
+# PlexonSpawners 3.4.0 - Main Configuration
 # Paper 26.2 / Java 25 / PlexonCore 2.0.4
 # ============================================================================
-# PlexonSpawners owns logical spawner stacking. WildStacker remains optional and
-# supported for entity/mob stacking only. Disable WildStacker spawner stacking and
-# spawner upgrades after the one-time migration has been verified.
+# PlexonSpawners owns logical spawner stacking, placement merge, spawn contribution
+# and Essence. WildStacker remains optional for entity/mob stack representation only.
+# Keep WildStacker spawner stacking/upgrades/linked-spawner entities disabled.
 # ============================================================================
 
-config-version: 8
+config-version: 9
 
 managed:
   enabled: true
@@ -41,8 +41,9 @@ managed:
       vertical:
         enabled: true
         range: 8
+      # 3.4 default: direct same-level cardinal placement can merge natively.
       nearby:
-        enabled: false
+        enabled: true
         radius: 1
 
     compatibility:
@@ -53,7 +54,6 @@ managed:
 
     display:
       enabled: true
-      # User-facing switch: true means no floating stacked-spawner title.
       hide-title: false
       hide-single: true
       format: '<yellow>%entity% Spawner</yellow> <gray>x%amount%</gray>'
@@ -81,8 +81,15 @@ managed:
       mode: BOUNDED_LINEAR
       max-logical-output-per-cycle: 64
       respect-nearby-logical-cap: true
-      # Used only when WildStacker entity stacking is unavailable.
       vanilla-physical-output-cap: 16
+
+      entity-aggregation:
+        enabled: true
+        radius: 8.0
+        prefer-existing-stack: true
+        # AUTO = WildStacker public entity API when healthy, otherwise bounded
+        # physical fallback. PHYSICAL forces the fallback representation.
+        backend: AUTO
 
     items:
       show-stack-amount: true
@@ -170,6 +177,9 @@ essence:
   default-chance: 35.0
   default-amount: 1
   delivery: GROUND
+  # 3.4 native-stack contract: one eligibility roll is performed for every
+  # logical spawner unit removed; successful amounts are aggregated before
+  # physical ItemStacks are created.
 
   mob-overrides:
     BLAZE:

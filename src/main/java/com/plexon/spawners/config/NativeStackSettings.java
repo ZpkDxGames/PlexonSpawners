@@ -12,11 +12,17 @@ public final class NativeStackSettings {
         BOUNDED_LINEAR
     }
 
+    public enum EntityAggregationBackend {
+        AUTO,
+        PHYSICAL
+    }
+
     public static final int DEFAULT_MAX_STACK_SIZE = 64;
     public static final int HARD_MAX_STACK_SIZE = 4096;
     public static final int DEFAULT_VERTICAL_RANGE = 8;
     public static final int DEFAULT_CYCLE_OUTPUT_CAP = 64;
     public static final int DEFAULT_VANILLA_PHYSICAL_CAP = 16;
+    public static final double DEFAULT_ENTITY_AGGREGATION_RADIUS = 8.0D;
 
     private volatile Snapshot runtime = Snapshot.defaults();
 
@@ -27,7 +33,7 @@ public final class NativeStackSettings {
         final boolean autoStackEnabled = config.getBoolean("managed.stacking.auto-stack.enabled", true);
         final boolean verticalEnabled = config.getBoolean("managed.stacking.auto-stack.vertical.enabled", true);
         final int verticalRange = boundedInt(config, "managed.stacking.auto-stack.vertical.range", DEFAULT_VERTICAL_RANGE, 1, 32, warnings);
-        final boolean nearbyEnabled = config.getBoolean("managed.stacking.auto-stack.nearby.enabled", false);
+        final boolean nearbyEnabled = config.getBoolean("managed.stacking.auto-stack.nearby.enabled", true);
         final int nearbyRadius = boundedInt(config, "managed.stacking.auto-stack.nearby.radius", 1, 1, 8, warnings);
 
         final boolean sameType = config.getBoolean("managed.stacking.compatibility.require-same-entity-type", true);
@@ -41,7 +47,8 @@ public final class NativeStackSettings {
         final String displayFormat = nonBlank(config.getString("managed.stacking.display.format"),
             "<yellow>%entity% Spawner</yellow> <gray>x%amount%</gray>");
         final boolean showTier = config.getBoolean("managed.stacking.display.show-tier", true);
-        final String tierFormat = nonBlank(config.getString("managed.stacking.display.tier-format"), " <dark_gray>•</dark_gray> <gray>%tier%</gray>");
+        final String tierFormat = nonBlank(config.getString("managed.stacking.display.tier-format"),
+            " <dark_gray>•</dark_gray> <gray>%tier%</gray>");
         final double viewDistance = boundedDouble(config, "managed.stacking.display.view-distance", 16.0D, 1.0D, 64.0D, warnings);
         final double verticalOffset = boundedDouble(config, "managed.stacking.display.vertical-offset", 1.25D, -2.0D, 8.0D, warnings);
 
@@ -51,9 +58,8 @@ public final class NativeStackSettings {
 
         final boolean withdrawEnabled = config.getBoolean("managed.stacking.withdraw.enabled", true);
         final List<Integer> withdrawPresets = new ArrayList<>();
-        for (final Object raw : config.getList("managed.stacking.withdraw.presets", List.of(1, 8, 16)) == null
-            ? List.of(1, 8, 16)
-            : config.getList("managed.stacking.withdraw.presets", List.of(1, 8, 16))) {
+        final List<?> configuredPresets = config.getList("managed.stacking.withdraw.presets", List.of(1, 8, 16));
+        for (final Object raw : configuredPresets == null ? List.of(1, 8, 16) : configuredPresets) {
             final Integer value = parsePositiveInt(raw);
             if (value == null || value > HARD_MAX_STACK_SIZE) {
                 warnings.add("Invalid managed.stacking.withdraw.presets entry '" + raw + "'; ignoring it.");
@@ -75,6 +81,15 @@ public final class NativeStackSettings {
         final int vanillaPhysicalCap = boundedInt(config, "managed.stacking.spawning.vanilla-physical-output-cap",
             DEFAULT_VANILLA_PHYSICAL_CAP, 1, 128, warnings);
 
+        final boolean aggregationEnabled = config.getBoolean("managed.stacking.spawning.entity-aggregation.enabled", true);
+        final double aggregationRadius = boundedDouble(config,
+            "managed.stacking.spawning.entity-aggregation.radius",
+            DEFAULT_ENTITY_AGGREGATION_RADIUS, 1.0D, 32.0D, warnings);
+        final boolean preferExistingStack = config.getBoolean(
+            "managed.stacking.spawning.entity-aggregation.prefer-existing-stack", true);
+        final EntityAggregationBackend aggregationBackend = parseAggregationBackend(
+            config.getString("managed.stacking.spawning.entity-aggregation.backend", "AUTO"), warnings);
+
         final boolean showStackAmount = config.getBoolean("managed.stacking.items.show-stack-amount", true);
         final boolean hideSingleAmount = config.getBoolean("managed.stacking.items.hide-single-amount", true);
         final boolean creativeConsume = config.getBoolean("managed.stacking.creative.consume-on-place", false);
@@ -93,6 +108,7 @@ public final class NativeStackSettings {
             normalBreakAll, sneakBreakAll, requireOwner,
             withdrawEnabled, List.copyOf(withdrawPresets),
             scaleWithStack, spawnMode, cycleOutputCap, respectLogicalCap, vanillaPhysicalCap,
+            aggregationEnabled, aggregationRadius, preferExistingStack, aggregationBackend,
             showStackAmount, hideSingleAmount, creativeConsume, creativeDrop, protectExplosions,
             migrationEnabled, autoImport, warnConflict, List.copyOf(warnings)
         );
@@ -139,6 +155,10 @@ public final class NativeStackSettings {
     public int configuredMaxLogicalOutputPerCycle() { return runtime.maxLogicalOutputPerCycle(); }
     public boolean respectNearbyLogicalCap() { return runtime.respectNearbyLogicalCap(); }
     public int vanillaPhysicalOutputCap() { return runtime.vanillaPhysicalOutputCap(); }
+    public boolean entityAggregationEnabled() { return runtime.entityAggregationEnabled(); }
+    public double entityAggregationRadius() { return runtime.entityAggregationRadius(); }
+    public boolean preferExistingEntityStack() { return runtime.preferExistingEntityStack(); }
+    public EntityAggregationBackend entityAggregationBackend() { return runtime.entityAggregationBackend(); }
     public boolean showStackAmountOnItems() { return runtime.showStackAmountOnItems(); }
     public boolean hideSingleAmountOnItems() { return runtime.hideSingleAmountOnItems(); }
     public boolean creativeConsumeOnPlace() { return runtime.creativeConsumeOnPlace(); }
@@ -158,6 +178,15 @@ public final class NativeStackSettings {
         }
     }
 
+    private static EntityAggregationBackend parseAggregationBackend(final String raw, final List<String> warnings) {
+        try {
+            return EntityAggregationBackend.valueOf(raw == null ? "AUTO" : raw.trim().toUpperCase(Locale.ROOT));
+        } catch (final IllegalArgumentException exception) {
+            warnings.add("Invalid managed.stacking.spawning.entity-aggregation.backend '" + raw + "'; using AUTO.");
+            return EntityAggregationBackend.AUTO;
+        }
+    }
+
     private static int boundedInt(
         final FileConfiguration config,
         final String path,
@@ -168,7 +197,8 @@ public final class NativeStackSettings {
     ) {
         final int raw = config.getInt(path, fallback);
         if (raw < min || raw > max) {
-            warnings.add(path + "=" + raw + " is outside " + min + ".." + max + "; using " + Math.max(min, Math.min(max, raw)) + ".");
+            warnings.add(path + "=" + raw + " is outside " + min + ".." + max + "; using "
+                + Math.max(min, Math.min(max, raw)) + ".");
         }
         return Math.max(min, Math.min(max, raw));
     }
@@ -241,6 +271,10 @@ public final class NativeStackSettings {
         int maxLogicalOutputPerCycle,
         boolean respectNearbyLogicalCap,
         int vanillaPhysicalOutputCap,
+        boolean entityAggregationEnabled,
+        double entityAggregationRadius,
+        boolean preferExistingEntityStack,
+        EntityAggregationBackend entityAggregationBackend,
         boolean showStackAmountOnItems,
         boolean hideSingleAmountOnItems,
         boolean creativeConsumeOnPlace,
@@ -254,7 +288,7 @@ public final class NativeStackSettings {
         private static Snapshot defaults() {
             return new Snapshot(
                 true, DEFAULT_MAX_STACK_SIZE,
-                true, true, DEFAULT_VERTICAL_RANGE, false, 1,
+                true, true, DEFAULT_VERTICAL_RANGE, true, 1,
                 true, true, true, true,
                 true, false, true,
                 "<yellow>%entity% Spawner</yellow> <gray>x%amount%</gray>", true,
@@ -262,6 +296,7 @@ public final class NativeStackSettings {
                 false, true, true,
                 true, List.of(1, 8, 16),
                 true, SpawnMode.BOUNDED_LINEAR, DEFAULT_CYCLE_OUTPUT_CAP, true, DEFAULT_VANILLA_PHYSICAL_CAP,
+                true, DEFAULT_ENTITY_AGGREGATION_RADIUS, true, EntityAggregationBackend.AUTO,
                 true, true, false, false, true,
                 true, true, true, List.of()
             );

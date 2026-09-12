@@ -7,7 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import org.junit.jupiter.api.Test;
 
-/** Stable-release source contracts for the 3.3 native stack ownership boundary. */
+/** Supplemental source contracts for the 3.4 native stack ownership boundary. */
 class NativeStackReleaseContractTest {
     private static String source(final String relative) throws Exception {
         return Files.readString(Path.of("src/main/java/com/plexon/spawners").resolve(relative));
@@ -103,19 +103,22 @@ class NativeStackReleaseContractTest {
     }
 
     @Test
-    void spawnScalingUsesPlexonAmountBeforeCycleAndNearbyBounds() throws Exception {
+    void spawnScalingUsesPlexonAmountBeforeAggregationAndNearbyBounds() throws Exception {
         final String listener = source("listener/NearbyStackCapListener.java");
         final String policy = source("managed/NativeStackPolicy.java");
+        final String aggregation = source("managed/ManagedSpawnAggregationService.java");
         final String settings = source("config/NativeStackSettings.java");
 
         assertTrue(listener.contains("managed.stackAmount()"));
         assertTrue(listener.contains("stackSettings.maxLogicalOutputPerCycle()"));
-        assertTrue(listener.contains("nearbyRemaining = NearbyStackCapPolicy.remainingCapacity"));
-        assertTrue(listener.contains("final int allowed = Math.min(requested, nearbyRemaining)"));
+        assertTrue(listener.contains("ManagedSpawnAggregationService.plan"));
+        assertTrue(listener.contains("plan.allowedContribution()"));
         assertTrue(listener.contains("stackSettings.vanillaPhysicalOutputCap()"));
         assertTrue(listener.contains("CreatureSpawnEvent.SpawnReason.SPAWNER"));
+        assertTrue(listener.contains("wildStacker.mergeInto(living, target, desired)"));
         assertTrue(policy.contains("(long) tierSpawnCount * stackAmount"));
         assertTrue(policy.contains("Math.min(cycleCap"));
+        assertTrue(aggregation.contains("chooseTarget"));
         assertTrue(settings.contains("runtime.spawnMode() == SpawnMode.LINEAR"));
         assertTrue(settings.contains("? Integer.MAX_VALUE"));
         assertFalse(listener.contains("getLogicalSpawnerAmount"));
@@ -133,11 +136,13 @@ class NativeStackReleaseContractTest {
     }
 
     @Test
-    void configSchemaEightAndNativeDefaultsAreMaterializedWithoutDeletingOverrides() throws Exception {
+    void configSchemaNineIsAdditiveAndKeepsAdminOverrides() throws Exception {
         final String plugin = source("PlexonSpawners.java");
         assertTrue(plugin.contains("configVersion < 8"));
-        assertTrue(plugin.contains("getConfig().set(\"config-version\", 8)"));
+        assertTrue(plugin.contains("configVersion < 9"));
+        assertTrue(plugin.contains("getConfig().set(\"config-version\", 9)"));
         assertTrue(plugin.contains("getConfig().options().copyDefaults(true)"));
+        assertTrue(plugin.contains("does not overwrite an administrator's existing nearby.enabled value"));
         assertTrue(plugin.contains("saveConfig()"));
     }
 }

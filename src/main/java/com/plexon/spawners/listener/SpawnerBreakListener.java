@@ -6,6 +6,7 @@ import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent;
 import com.plexon.spawners.event.PlexonSpawnerRecoveredEvent;
+import com.plexon.spawners.item.EssenceRewardPolicy;
 import com.plexon.spawners.item.EssenceService;
 import com.plexon.spawners.item.SpawnerItemService;
 import com.plexon.spawners.managed.ManagedSpawner;
@@ -278,19 +279,28 @@ public final class SpawnerBreakListener implements Listener {
         if (!settings.essenceEnabled()) {
             return;
         }
+
         final PluginSettings.EssenceRule rule = settings.essenceRule(entityType);
-        counters.essenceRoll();
-        if (!passesChance(rule.chance())) {
+        final EssenceRewardPolicy.Award award = EssenceRewardPolicy.evaluate(
+            recoveredAmount,
+            rule.amount(),
+            rule.chance(),
+            () -> ThreadLocalRandom.current().nextDouble(100.0D));
+        for (int index = 0; index < award.rolls(); index++) {
+            counters.essenceRoll();
+        }
+        if (!award.awarded()) {
             return;
         }
+
         final Location sourceLocation = event.getBlock().getLocation();
-        deliverEssence(player, sourceLocation, rule.amount());
+        deliverEssence(player, sourceLocation, award.totalAmount());
         counters.essenceWin();
-        counters.essenceLogicalAmountAwarded(rule.amount());
+        counters.essenceLogicalAmountAwarded(award.totalAmount());
         final String transactionId = newTransactionId();
-        fireEssenceEvent(player, entityType, sourceLocation, rule.amount(), transactionId);
+        fireEssenceEvent(player, entityType, sourceLocation, award.totalAmount(), transactionId);
         if (settings.breakFailedMessages()) {
-            messages.send(player, "essence-dropped", Map.of("amount", Integer.toString(rule.amount())));
+            messages.send(player, "essence-dropped", Map.of("amount", Integer.toString(award.totalAmount())));
         }
     }
 
@@ -363,16 +373,6 @@ public final class SpawnerBreakListener implements Listener {
             return;
         }
         player.damageItemStack(EquipmentSlot.HAND, 1);
-    }
-
-    private static boolean passesChance(final double chance) {
-        if (chance <= 0.0) {
-            return false;
-        }
-        if (chance >= 100.0) {
-            return true;
-        }
-        return ThreadLocalRandom.current().nextDouble(100.0) < chance;
     }
 
     private void deliverEssence(final Player player, final Location sourceLocation, final int totalAmount) {
