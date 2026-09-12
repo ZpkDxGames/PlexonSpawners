@@ -9,7 +9,9 @@ PlexonSpawners 3.3.0 moves logical **spawner** stacking under first-party Plexon
 - Placement auto-merges compatible managed spawners vertically within 8 blocks by default.
 - Merge targeting is deterministic and bounded; the registry uses its chunk index rather than world/chunk-wide scans.
 - Default compatibility requires equal entity type, owner, tier and access mode.
-- Overflow is never deleted: a full target consumes no additional unit and normal placement semantics remain available for the remainder.
+- Placement can commit the compatible amount represented by the held managed-spawner ItemStack in one transaction. For example, target `x60` + held `x8` with max `64` becomes target `x64` plus a valid `x4` remainder stack when the placed chunk has room.
+- Overflow is never deleted. If another physical managed stack cannot be created because of the chunk safety cap, only the merged amount is consumed and the remainder stays in hand.
+- Creative placement remains non-consuming by default; `creative.consume-on-place: true` enables exact logical consumption.
 
 ## Break and withdraw
 
@@ -29,10 +31,12 @@ PlexonSpawners 3.3.0 moves logical **spawner** stacking under first-party Plexon
 ## Bounded spawning and nearby logical cap
 
 - Requested logical cycle output is `tier spawn-count × Plexon stack amount` when scaling is enabled.
-- Default `BOUNDED_LINEAR` output is capped to 64 logical entities per physical spawner cycle.
+- Default `BOUNDED_LINEAR` output is capped to `max-logical-output-per-cycle` (64 by default).
+- Optional `LINEAR` mode removes that per-cycle ceiling while still using overflow-safe arithmetic and the nearby logical cap when enabled.
 - The existing nearby logical population cap remains the final limiter.
-- When WildStacker is available, Plexon determines the logical contribution and WildStacker represents it as an entity stack.
+- When WildStacker entity stacking is enabled, Plexon determines the logical contribution and WildStacker represents it as an entity stack; WildStacker spawner stacking is not runtime authority.
 - Without WildStacker, native stacking remains functional and physical output is additionally bounded by `vanilla-physical-output-cap` (default 16).
+- Additional vanilla physical entities are spawned with `SPAWNER` reason so first-party Plexon provenance remains intact.
 
 ## WildStacker migration
 
@@ -68,7 +72,7 @@ PlexonSpawners
 - Native stack titles use lightweight Paper `TextDisplay` entities and refresh only when state changes or a relevant chunk/config is reconciled.
 - `managed.stacking.display.hide-title: true` removes/hides every Plexon stack title.
 - `hide-single: true` suppresses x1 titles without disabling stacking.
-- Runtime Status now includes native stack amount/max, spawn count, native multiplier, requested bounded output, nearby cap, redstone state and WildStacker entity-integration state.
+- Runtime Status now includes native stack amount/max, spawn count, native multiplier, requested output, configured/effective cycle bounds, nearby cap, redstone state and WildStacker entity-integration state.
 - Open managed-spawner GUIs refresh through one shared task rather than one scheduler per GUI.
 
 ## Safety and lifecycle
