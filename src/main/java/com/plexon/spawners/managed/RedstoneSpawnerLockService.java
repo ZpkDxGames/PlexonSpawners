@@ -72,6 +72,24 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
         reschedule();
     }
 
+    /** Reconcile one known managed spawner immediately after a physical state update. */
+    public void refresh(final ManagedSpawner record) {
+        if (record == null) {
+            return;
+        }
+        if (!settings.enabled()) {
+            final CreatureSpawner spawner = physicalSpawner(record);
+            if (spawner != null) {
+                unlock(record, spawner);
+            } else {
+                locked.remove(record.id());
+            }
+            return;
+        }
+        loadedManaged.add(record.id());
+        reconcile(record);
+    }
+
     public boolean isLocked(final UUID spawnerId) {
         return spawnerId != null && locked.containsKey(spawnerId);
     }
@@ -145,10 +163,7 @@ public final class RedstoneSpawnerLockService implements Listener, AutoCloseable
     @EventHandler(priority = EventPriority.MONITOR)
     public void onBlockBreak(final BlockBreakEvent event) {
         reconcileNear(event.getBlock().getLocation());
-        locked.entrySet().removeIf(entry -> {
-            final ManagedSpawner record = registry.find(entry.getKey());
-            return record == null;
-        });
+        locked.entrySet().removeIf(entry -> registry.find(entry.getKey()) == null);
         loadedManaged.removeIf(id -> registry.find(id) == null);
     }
 
