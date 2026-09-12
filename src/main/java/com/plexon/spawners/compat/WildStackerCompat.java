@@ -373,6 +373,7 @@ public final class WildStackerCompat implements Listener {
     }
 
     private void degrade(final Throwable throwable) {
+        HandlerList.unregisterAll(dynamicListener);
         state = State.DEGRADED;
         resolutionMode = "degraded";
         getStackedSpawner = null;
@@ -382,6 +383,7 @@ public final class WildStackerCompat implements Listener {
         getStackAmount = null;
         runUnstack = null;
         successResult = null;
+        clearEventAccessors();
         warnOnce(throwable);
     }
 
