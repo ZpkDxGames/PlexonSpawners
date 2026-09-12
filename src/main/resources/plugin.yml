@@ -3,21 +3,17 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: Persistent premium managed spawners, tier upgrades, Essence recovery and first-party spawn provenance.
+description: Native stacked managed spawners, tier upgrades, migration, Essence recovery and first-party spawn provenance.
 prefix: PlexonSpawners
 
 softdepend:
   - PlexonCore
-
-# PlexonSpawners intentionally loads before known spawner managers so its
-# HIGHEST-priority break listener can claim accepted managed breaks first.
-loadbefore:
   - WildStacker
 
 commands:
   pspawners:
     description: PlexonSpawners administration command.
-    usage: /pspawners <admin|info|diagnostics|reload|give|essence>
+    usage: /pspawners <admin|status|migration|reload|give|essence>
     aliases: [plexonspawners, pspawner]
     permission: plexonspawners.admin
 

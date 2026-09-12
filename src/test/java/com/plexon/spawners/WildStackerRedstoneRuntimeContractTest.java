@@ -13,16 +13,17 @@ class WildStackerRedstoneRuntimeContractTest {
     }
 
     @Test
-    void granularCapPreservesWildStackerOutputAndTrimsPendingLogicalStack() throws Exception {
+    void nativeCapPreservesWildStackerEntityOutputAndTrimsPendingLogicalStack() throws Exception {
         final String compat = source("compat/WildStackerCompat.java");
         final String listener = source("listener/NearbyStackCapListener.java");
 
         assertTrue(compat.contains("getStackedEntity"));
         assertTrue(compat.contains("setStackAmount\", int.class, boolean.class"));
         assertTrue(compat.contains("resizeLogicalEntity"));
-        assertTrue(listener.contains("applyGranularStackBudget"));
-        assertTrue(listener.contains("wildStacker.resizeLogicalEntity(pendingEntity, allowed)"));
-        assertTrue(listener.contains("return true;\n    }\n\n    /** Called reflectively before WildStacker's direct"));
+        assertTrue(listener.contains("managed.stackAmount()"));
+        assertTrue(listener.contains("wildStacker.resizeLogicalEntity(living, desired)"));
+        assertTrue(listener.contains("shouldCancelEntityStack"));
+        assertFalse(listener.contains("getLogicalSpawnerAmount"));
         assertFalse(listener.contains("cycle.remainingCapacity--;"));
     }
 
@@ -41,23 +42,27 @@ class WildStackerRedstoneRuntimeContractTest {
     }
 
     @Test
-    void controlGuiExposesLiveCountdownLockAndStackOutput() throws Exception {
+    void controlGuiExposesAutomaticallyRefreshedNativeStackRuntimeStatus() throws Exception {
         final String gui = source("gui/SpawnerControlGui.java");
 
         assertTrue(gui.contains("Next spawn"));
         assertTrue(gui.contains("nextSpawnTicks(record)"));
-        assertTrue(gui.contains("Redstone lock"));
-        assertTrue(gui.contains("Stack output"));
-        assertTrue(gui.contains("Click to refresh live values."));
+        assertTrue(gui.contains("Redstone"));
+        assertTrue(gui.contains("Stack multiplier"));
+        assertTrue(gui.contains("Requested logical output"));
+        assertTrue(gui.contains("runTaskTimer(plugin, this::refreshOpenViews"));
+        assertTrue(gui.contains("refreshDynamic(top, player, record"));
     }
 
     @Test
-    void schemaSevenMaterializesRedstoneControls() throws Exception {
+    void schemaSevenMaterializesRedstoneControlsAndSchemaEightAddsNativeStacking() throws Exception {
         final String plugin = source("PlexonSpawners.java");
 
         assertTrue(plugin.contains("configVersion < 7"));
         assertTrue(plugin.contains("managed.redstone-lock.enabled"));
         assertTrue(plugin.contains("managed.redstone-lock.poll-interval-ticks"));
         assertTrue(plugin.contains("contains(\"managed.redstone-lock.enabled\", true)"));
+        assertTrue(plugin.contains("configVersion < 8"));
+        assertTrue(plugin.contains("copyDefaults(true)"));
     }
 }

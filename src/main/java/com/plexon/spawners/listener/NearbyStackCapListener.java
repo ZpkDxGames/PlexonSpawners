@@ -2,17 +2,18 @@ package com.plexon.spawners.listener;
 
 import com.destroystokyo.paper.event.entity.PreSpawnerSpawnEvent;
 import com.plexon.spawners.compat.WildStackerCompat;
+import com.plexon.spawners.config.NativeStackSettings;
 import com.plexon.spawners.config.NearbyStackCapSettings;
 import com.plexon.spawners.diagnostics.PerformanceCounters;
 import com.plexon.spawners.managed.ManagedSpawner;
 import com.plexon.spawners.managed.ManagedSpawnerRegistry;
+import com.plexon.spawners.managed.NativeStackPolicy;
 import com.plexon.spawners.managed.NearbyStackCapPolicy;
 import java.util.Collection;
 import java.util.UUID;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
-import org.bukkit.block.BlockState;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
@@ -20,242 +21,167 @@ import org.bukkit.entity.LivingEntity;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
+import org.bukkit.event.entity.CreatureSpawnEvent;
 import org.bukkit.event.entity.SpawnerSpawnEvent;
 
-/** Runtime-only guard that caps the logical nearby population of managed spawners. */
+/** Native Plexon stack scaling plus exact nearby logical-population guard. */
 @SuppressWarnings("deprecation")
 public final class NearbyStackCapListener implements Listener, WildStackerCompat.SpawnGuard {
     private final ManagedSpawnerRegistry registry;
-    private final NearbyStackCapSettings settings;
+    private final NearbyStackCapSettings capSettings;
+    private final NativeStackSettings stackSettings;
     private final WildStackerCompat wildStacker;
     private final PerformanceCounters counters;
     private CycleContext activeCycle;
 
     public NearbyStackCapListener(
         final ManagedSpawnerRegistry registry,
-        final NearbyStackCapSettings settings,
+        final NearbyStackCapSettings capSettings,
+        final NativeStackSettings stackSettings,
         final WildStackerCompat wildStacker,
         final PerformanceCounters counters
     ) {
         this.registry = registry;
-        this.settings = settings;
+        this.capSettings = capSettings;
+        this.stackSettings = stackSettings;
         this.wildStacker = wildStacker;
         this.counters = counters;
     }
 
-    /**
-     * Paper's pre-spawn hook provides an early safety net. For WildStacker's
-     * overridden granular cycle, capacity is consumed later at SpawnerSpawnEvent,
-     * after WildStacker has assigned the pending entity's real logical stack amount.
-     */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onPreSpawnerSpawn(final PreSpawnerSpawnEvent event) {
-        if (!enabled()) {
+        final ManagedSpawner managed = registry.find(event.getSpawnerLocation());
+        if (managed == null || managed.type() != event.getType()) {
             return;
         }
-
-        final Location spawnerLocation = event.getSpawnerLocation();
-        final ManagedSpawner managed = registry.find(spawnerLocation);
-        if (managed == null || !matchesSpawnType(managed.type(), event.getType())) {
+        if (managed.migrationState().blocksMutation()) {
+            failClosed(event);
             return;
         }
-
+        if (!capSettings.enabled() || !stackSettings.respectNearbyLogicalCap()) {
+            return;
+        }
         counters.nearbyStackCapCheck();
-        final CycleContext cycle = currentCycle(spawnerLocation, managed.type());
-        if (cycle != null) {
-            if (cycle.mode == NearbyStackCapPolicy.Decision.FAST_PATH) {
-                return;
-            }
-            if (cycle.mode == NearbyStackCapPolicy.Decision.GRANULAR && cycle.remainingCapacity > 0) {
-                return;
-            }
-            block(event);
-            return;
-        }
-
-        final CountResult count = countNearby(spawnerLocation, managed.type());
+        final CountResult count = countNearby(event.getSpawnerLocation(), managed.type());
         if (!count.available) {
             failClosed(event);
             return;
         }
-        if (count.logicalAmount >= settings.maximumAmount()) {
+        if (count.logicalAmount >= capSettings.maximumAmount()) {
             block(event);
-            return;
-        }
-
-        /*
-         * If WildStacker is present but this spawn did not enter through its overridden
-         * cycle event, the public API exposes no pending contribution amount here. Reject
-         * a whole at-risk cycle rather than knowingly permitting an overshoot.
-         */
-        if (wildStacker.installed()) {
-            final CreatureSpawner spawner = spawnerAt(spawnerLocation);
-            if (spawner == null || spawner.getSpawnedType() != managed.type()) {
-                failClosed(event);
-                return;
-            }
-            final WildStackerCompat.Amount stackAmount = wildStacker.getLogicalSpawnerAmount(spawner);
-            if (stackAmount.result() != WildStackerCompat.Result.SUCCESS) {
-                failClosed(event);
-                return;
-            }
-            counters.nearbyStackCapWildStackerLookup();
-            final long maximumContribution = NearbyStackCapPolicy.maximumCycleContribution(
-                spawner.getSpawnCount(),
-                stackAmount.amount()
-            );
-            if (maximumContribution > NearbyStackCapPolicy.remainingCapacity(
-                count.logicalAmount,
-                settings.maximumAmount()
-            )) {
-                block(event);
-            }
         }
     }
 
-    /**
-     * Covers both WildStacker's overridden pending-entity path and its conservative
-     * non-overridden Bukkit fallback. In the overridden granular path, the pending
-     * WildStacker entity already has its logical stack amount before this event fires,
-     * allowing PlexonSpawners to trim it to the exact remaining cap without spawning
-     * loose mobs.
-     */
     @EventHandler(priority = EventPriority.LOWEST, ignoreCancelled = true)
     public void onSpawnerSpawn(final SpawnerSpawnEvent event) {
-        if (!enabled() || !wildStacker.installed()) {
-            return;
-        }
-
         final CreatureSpawner spawner = event.getSpawner();
         if (spawner == null) {
             return;
         }
-        final Location spawnerLocation = spawner.getLocation();
-        final ManagedSpawner managed = registry.find(spawnerLocation);
-        if (managed == null || managed.type() != spawner.getSpawnedType() || managed.type() != event.getEntityType()) {
+        final ManagedSpawner managed = registry.find(spawner.getLocation());
+        if (managed == null || managed.type() != event.getEntityType()) {
+            return;
+        }
+        if (managed.migrationState().blocksMutation()) {
+            cancelSpawnerSpawn(event, true);
             return;
         }
 
-        final CycleContext cycle = currentCycle(spawnerLocation, managed.type());
-        if (cycle != null) {
-            if (cycle.mode == NearbyStackCapPolicy.Decision.FAST_PATH) {
+        CycleContext cycle = currentCycle(spawner.getLocation(), managed.type());
+        if (cycle == null) {
+            cycle = createCycle(spawner, managed);
+            if (cycle == null) {
+                cancelSpawnerSpawn(event, true);
                 return;
             }
-            if (cycle.mode == NearbyStackCapPolicy.Decision.GRANULAR) {
-                if (event.getEntity() instanceof LivingEntity living) {
-                    applyGranularStackBudget(event, living, cycle);
-                } else {
+            activeCycle = cycle;
+        }
+        if (cycle.remainingLogical <= 0) {
+            cancelSpawnerSpawn(event, false);
+            return;
+        }
+
+        final int perPhysicalContribution = stackSettings.scaleWithStack() ? managed.stackAmount() : 1;
+        int desired = Math.min(perPhysicalContribution, cycle.remainingLogical);
+        if (capSettings.enabled() && stackSettings.respectNearbyLogicalCap()) {
+            desired = Math.min(desired, cycle.remainingNearby);
+        }
+        if (desired <= 0) {
+            cancelSpawnerSpawn(event, false);
+            return;
+        }
+
+        if (wildStacker.installed()) {
+            if (!(event.getEntity() instanceof LivingEntity living)) {
+                cancelSpawnerSpawn(event, true);
+                return;
+            }
+            final WildStackerCompat.Amount pending = wildStacker.getLogicalEntityAmount(living);
+            if (pending.result() != WildStackerCompat.Result.SUCCESS) {
+                cancelSpawnerSpawn(event, true);
+                return;
+            }
+            counters.nearbyStackCapWildStackerLookup();
+            if (pending.amount() != desired) {
+                final WildStackerCompat.Result resized = wildStacker.resizeLogicalEntity(living, desired);
+                if (resized != WildStackerCompat.Result.SUCCESS) {
                     cancelSpawnerSpawn(event, true);
+                    return;
                 }
-                return;
             }
-            cancelSpawnerSpawn(event, cycle.mode == NearbyStackCapPolicy.Decision.FAIL_CLOSED);
+            consume(cycle, desired);
             return;
         }
 
-        counters.nearbyStackCapCheck();
-        final CountResult count = countNearby(spawnerLocation, managed.type());
-        if (!count.available) {
-            cancelSpawnerSpawn(event, true);
-            return;
-        }
-        if (count.logicalAmount >= settings.maximumAmount()) {
+        final int remainingPhysicalBudget = Math.max(0, stackSettings.vanillaPhysicalOutputCap() - cycle.vanillaPhysicalSpawned);
+        if (remainingPhysicalBudget <= 0) {
             cancelSpawnerSpawn(event, false);
             return;
         }
+        desired = Math.min(desired, remainingPhysicalBudget);
+        consume(cycle, desired);
+        cycle.vanillaPhysicalSpawned += desired;
 
-        final WildStackerCompat.Amount stackAmount = wildStacker.getLogicalSpawnerAmount(spawner);
-        if (stackAmount.result() != WildStackerCompat.Result.SUCCESS) {
-            cancelSpawnerSpawn(event, true);
-            return;
-        }
-        counters.nearbyStackCapWildStackerLookup();
-        final int additional = Math.max(0, stackAmount.amount() - 1);
-        final int remaining = NearbyStackCapPolicy.remainingCapacity(count.logicalAmount, settings.maximumAmount());
-        if (additional > remaining) {
-            cancelSpawnerSpawn(event, false);
+        final int extra = desired - 1;
+        if (extra > 0) {
+            final Location spawnLocation = event.getEntity().getLocation();
+            final World world = spawnLocation.getWorld();
+            for (int index = 0; index < extra; index++) {
+                // Preserve first-party SPAWNER provenance for the additional physical
+                // entities representing this logical native-stack contribution.
+                world.spawnEntity(spawnLocation, managed.type(), CreatureSpawnEvent.SpawnReason.SPAWNER);
+            }
         }
     }
 
     /** Called reflectively from WildStacker's SpawnerStackedEntitySpawnEvent. */
     @Override
     public boolean shouldUseStackedSpawn(final CreatureSpawner spawner) {
-        if (!enabled()) {
-            activeCycle = null;
-            return true;
-        }
         if (!Bukkit.isPrimaryThread()) {
             activeCycle = null;
             counters.nearbyStackCapFailClosed();
             return false;
         }
-
-        final Location location = spawner.getLocation();
-        final ManagedSpawner managed = registry.find(location);
+        final ManagedSpawner managed = registry.find(spawner.getLocation());
         if (managed == null || managed.type() != spawner.getSpawnedType()) {
             activeCycle = null;
             return true;
         }
-
-        counters.nearbyStackCapCheck();
-        final CountResult count = countNearby(location, managed.type());
-        if (!count.available) {
+        if (managed.migrationState().blocksMutation()) {
+            activeCycle = null;
             counters.nearbyStackCapFailClosed();
-            activeCycle = CycleContext.create(
-                location,
-                managed.type(),
-                settings.radius(),
-                NearbyStackCapPolicy.Decision.FAIL_CLOSED,
-                0
-            );
             return false;
         }
-
-        final WildStackerCompat.Amount spawnerAmount = wildStacker.getLogicalSpawnerAmount(spawner);
-        if (spawnerAmount.result() != WildStackerCompat.Result.SUCCESS) {
-            counters.nearbyStackCapFailClosed();
-            activeCycle = CycleContext.create(
-                location,
-                managed.type(),
-                settings.radius(),
-                NearbyStackCapPolicy.Decision.FAIL_CLOSED,
-                0
-            );
-            return false;
-        }
-        counters.nearbyStackCapWildStackerLookup();
-
-        final long maximumContribution = NearbyStackCapPolicy.maximumCycleContribution(
-            spawner.getSpawnCount(),
-            spawnerAmount.amount()
-        );
-        final NearbyStackCapPolicy.Decision decision = NearbyStackCapPolicy.decide(
-            count.logicalAmount,
-            settings.maximumAmount(),
-            maximumContribution,
-            true
-        );
-        final int remaining = NearbyStackCapPolicy.remainingCapacity(count.logicalAmount, settings.maximumAmount());
-        activeCycle = CycleContext.create(location, managed.type(), settings.radius(), decision, remaining);
-
-        if (decision == NearbyStackCapPolicy.Decision.BLOCKED) {
+        final CycleContext cycle = createCycle(spawner, managed);
+        activeCycle = cycle;
+        if (cycle == null || cycle.remainingLogical <= 0 || cycle.remainingNearby <= 0) {
             counters.nearbyStackCapBlocked();
             return false;
         }
-        if (decision == NearbyStackCapPolicy.Decision.FAIL_CLOSED) {
-            return false;
-        }
-
-        /*
-         * GRANULAR intentionally remains stacked. If WildStacker planned to merge
-         * directly into an existing target, EntityStackEvent is cancelled so it falls
-         * back to spawning a fresh stacked entity. SpawnerSpawnEvent then trims that
-         * pending stack to the exact remaining logical capacity before world admission.
-         */
         return true;
     }
 
-    /** Called reflectively before WildStacker's direct targetEntity.increaseStackAmount path. */
+    /** Prevent direct in-place entity growth so the pending entity can be resized to the exact native contribution. */
     @Override
     public boolean shouldCancelEntityStack(final LivingEntity existingTarget) {
         final CycleContext cycle = activeCycle;
@@ -263,52 +189,32 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             activeCycle = null;
             return false;
         }
-        if (!cycle.matchesEntity(existingTarget)) {
-            return false;
-        }
-        return cycle.mode != NearbyStackCapPolicy.Decision.FAST_PATH;
+        return cycle.matchesEntity(existingTarget);
     }
 
-    private void applyGranularStackBudget(
-        final SpawnerSpawnEvent event,
-        final LivingEntity pendingEntity,
-        final CycleContext cycle
-    ) {
-        if (cycle.remainingCapacity <= 0) {
-            cancelSpawnerSpawn(event, false);
-            return;
-        }
-
-        final WildStackerCompat.Amount pendingAmount = wildStacker.getLogicalEntityAmount(pendingEntity);
-        if (pendingAmount.result() != WildStackerCompat.Result.SUCCESS) {
-            cancelSpawnerSpawn(event, true);
-            return;
-        }
-        counters.nearbyStackCapWildStackerLookup();
-
-        final int logicalAmount = Math.max(1, pendingAmount.amount());
-        final int allowed = Math.min(logicalAmount, cycle.remainingCapacity);
-        if (allowed <= 0) {
-            cancelSpawnerSpawn(event, false);
-            return;
-        }
-
-        if (allowed < logicalAmount) {
-            final WildStackerCompat.Result resized = wildStacker.resizeLogicalEntity(pendingEntity, allowed);
-            if (resized != WildStackerCompat.Result.SUCCESS) {
-                cancelSpawnerSpawn(event, true);
-                return;
+    private CycleContext createCycle(final CreatureSpawner spawner, final ManagedSpawner managed) {
+        counters.nearbyStackCapCheck();
+        final int requested = NativeStackPolicy.requestedLogicalOutput(
+            Math.max(1, spawner.getSpawnCount()), managed.stackAmount(),
+            stackSettings.maxLogicalOutputPerCycle(), stackSettings.scaleWithStack());
+        int nearbyRemaining = Integer.MAX_VALUE;
+        if (capSettings.enabled() && stackSettings.respectNearbyLogicalCap()) {
+            final CountResult count = countNearby(spawner.getLocation(), managed.type());
+            if (!count.available) {
+                counters.nearbyStackCapFailClosed();
+                return null;
             }
+            nearbyRemaining = NearbyStackCapPolicy.remainingCapacity(count.logicalAmount, capSettings.maximumAmount());
         }
-        cycle.remainingCapacity -= allowed;
+        final int allowed = Math.min(requested, nearbyRemaining);
+        return CycleContext.create(spawner.getLocation(), managed.type(), capSettings.radius(), allowed, nearbyRemaining);
     }
 
-    private boolean enabled() {
-        return settings.enabled();
-    }
-
-    private boolean matchesSpawnType(final EntityType managedType, final EntityType candidate) {
-        return managedType == candidate;
+    private void consume(final CycleContext cycle, final int amount) {
+        cycle.remainingLogical = Math.max(0, cycle.remainingLogical - amount);
+        if (cycle.remainingNearby != Integer.MAX_VALUE) {
+            cycle.remainingNearby = Math.max(0, cycle.remainingNearby - amount);
+        }
     }
 
     private CountResult countNearby(final Location spawnerLocation, final EntityType type) {
@@ -316,8 +222,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
         if (world == null) {
             return CountResult.unavailable();
         }
-
-        final double radius = settings.radius();
+        final double radius = capSettings.radius();
         final Location center = spawnerLocation.clone().add(0.5D, 0.5D, 0.5D);
         final Collection<Entity> nearby = world.getNearbyEntities(center, radius, radius, radius);
         int logicalAmount = 0;
@@ -325,10 +230,9 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             if (!(entity instanceof LivingEntity living)) {
                 continue;
             }
-            if (!NearbyStackCapPolicy.contributes(settings.sameTypeOnly(), living.getType() == type)) {
+            if (!NearbyStackCapPolicy.contributes(capSettings.sameTypeOnly(), living.getType() == type)) {
                 continue;
             }
-
             final WildStackerCompat.Amount amount = wildStacker.getLogicalEntityAmount(living);
             if (amount.result() == WildStackerCompat.Result.UNAVAILABLE
                 || amount.result() == WildStackerCompat.Result.CANCELLED) {
@@ -339,12 +243,9 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             }
             final int contribution = Math.max(1, amount.amount());
             logicalAmount = NearbyStackCapPolicy.accumulateLogicalAmount(
-                logicalAmount,
-                contribution,
-                settings.maximumAmount()
-            );
+                logicalAmount, contribution, capSettings.maximumAmount());
             counters.nearbyStackCapLogicalEntitiesCounted(contribution);
-            if (logicalAmount >= settings.maximumAmount()) {
+            if (logicalAmount >= capSettings.maximumAmount()) {
                 break;
             }
         }
@@ -361,11 +262,6 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             return null;
         }
         return cycle.matchesSpawner(spawnerLocation, type) ? cycle : null;
-    }
-
-    private CreatureSpawner spawnerAt(final Location location) {
-        final BlockState state = location.getBlock().getState();
-        return state instanceof CreatureSpawner spawner ? spawner : null;
     }
 
     private void block(final PreSpawnerSpawnEvent event) {
@@ -388,9 +284,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
     }
 
     private record CountResult(boolean available, int logicalAmount) {
-        private static CountResult unavailable() {
-            return new CountResult(false, 0);
-        }
+        private static CountResult unavailable() { return new CountResult(false, 0); }
     }
 
     private static final class CycleContext {
@@ -401,19 +295,15 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
         private final int z;
         private final EntityType type;
         private final double radius;
-        private final NearbyStackCapPolicy.Decision mode;
-        private int remainingCapacity;
+        private int remainingLogical;
+        private int remainingNearby;
+        private int vanillaPhysicalSpawned;
 
         private CycleContext(
-            final UUID worldId,
-            final long worldTime,
-            final int x,
-            final int y,
-            final int z,
-            final EntityType type,
-            final double radius,
-            final NearbyStackCapPolicy.Decision mode,
-            final int remainingCapacity
+            final UUID worldId, final long worldTime,
+            final int x, final int y, final int z,
+            final EntityType type, final double radius,
+            final int remainingLogical, final int remainingNearby
         ) {
             this.worldId = worldId;
             this.worldTime = worldTime;
@@ -422,29 +312,18 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             this.z = z;
             this.type = type;
             this.radius = radius;
-            this.mode = mode;
-            this.remainingCapacity = remainingCapacity;
+            this.remainingLogical = remainingLogical;
+            this.remainingNearby = remainingNearby;
         }
 
         private static CycleContext create(
-            final Location location,
-            final EntityType type,
-            final double radius,
-            final NearbyStackCapPolicy.Decision mode,
-            final int remainingCapacity
+            final Location location, final EntityType type, final double radius,
+            final int remainingLogical, final int remainingNearby
         ) {
             final World world = location.getWorld();
-            return new CycleContext(
-                world.getUID(),
-                world.getFullTime(),
-                location.getBlockX(),
-                location.getBlockY(),
-                location.getBlockZ(),
-                type,
-                radius,
-                mode,
-                remainingCapacity
-            );
+            return new CycleContext(world.getUID(), world.getFullTime(),
+                location.getBlockX(), location.getBlockY(), location.getBlockZ(), type, radius,
+                remainingLogical, remainingNearby);
         }
 
         private boolean expired(final World world) {
@@ -453,11 +332,8 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
 
         private boolean matchesSpawner(final Location location, final EntityType candidateType) {
             final World world = location.getWorld();
-            return world != null
-                && worldId.equals(world.getUID())
-                && x == location.getBlockX()
-                && y == location.getBlockY()
-                && z == location.getBlockZ()
+            return world != null && worldId.equals(world.getUID())
+                && x == location.getBlockX() && y == location.getBlockY() && z == location.getBlockZ()
                 && type == candidateType;
         }
 
@@ -469,7 +345,7 @@ public final class NearbyStackCapListener implements Listener, WildStackerCompat
             final double dx = location.getX() - (x + 0.5D);
             final double dy = location.getY() - (y + 0.5D);
             final double dz = location.getZ() - (z + 0.5D);
-            return Math.abs(dx) <= radius && Math.abs(dy) <= radius && Math.abs(dz) <= radius;
+            return dx * dx + dy * dy + dz * dz <= radius * radius;
         }
     }
 }

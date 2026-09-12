@@ -34,17 +34,24 @@ class SpawnersStabilizationContractTest {
         assertTrue(place.contains("pendingPlacements"));
         assertTrue(place.contains("readSpawnerType(event.getItemInHand())"));
         assertTrue(place.contains("stateService.apply(spawner, record, tuning.tier(tier))"));
-        assertTrue(place.contains("registry.register(pending)"));
+        assertTrue(place.contains("registerStandalone(pending)"));
+        assertTrue(place.contains("registry.findAutoStackTarget"));
+        assertTrue(place.contains("NativeStackPolicy.merge"));
+        assertTrue(place.contains("pending.withStackAmount(merge.remainder())"));
     }
 
     @Test
-    void breakPathPreventsDuplicateDropsAndPreservesTier() throws Exception {
+    void nativeBreakPreventsDuplicateDropsAndPreservesTier() throws Exception {
         final String breaking = source("listener/SpawnerBreakListener.java");
         assertTrue(breaking.contains("event.setCancelled(true)"));
         assertTrue(breaking.contains("event.setDropItems(false)"));
         assertTrue(breaking.contains("dropSpawnerWhenQualified"));
-        assertTrue(breaking.contains("createSpawner(entityType, 1, recoveredTier)"));
+        assertTrue(breaking.contains("createSpawnerStacks(type, amount, tier)"));
+        assertTrue(breaking.contains("registry.updateStackAmount"));
         assertTrue(breaking.contains("registry.remove(managed.id())"));
+        assertTrue(breaking.contains("managed.migrationState().blocksMutation()"));
+        // WildStacker remains only as the legacy/unmanaged provider path.
+        assertTrue(breaking.contains("handleLegacyProviderBreak"));
         assertTrue(breaking.contains("WildStackerCompat.Result.SUCCESS"));
     }
 
