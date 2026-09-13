@@ -45,7 +45,8 @@ public final class AdminConfigPersistence {
 
     public SaveResult save(final AdminSettingsSession session) {
         if (session.sourceRevision() != revisions.current()) {
-            return new SaveResult(Status.STALE, session.draft().validate(), "The live configuration changed after this GUI was opened.");
+            return new SaveResult(Status.STALE, session.draft().validate(),
+                "The live configuration changed after this GUI was opened.");
         }
         final AdminSettingsDraft.ValidationResult validation = session.draft().validate();
         if (!validation.valid()) return new SaveResult(Status.INVALID, validation, "Draft validation failed.");
@@ -76,16 +77,22 @@ public final class AdminConfigPersistence {
                         reloadFailure.addSuppressed(rollbackFailure);
                     }
                 }
-                throw new IOException("Runtime reload failed after config replacement; previous config was restored where possible.", reloadFailure);
+                throw new IOException(
+                    "Runtime reload failed after config replacement; previous config was restored where possible.", reloadFailure);
             }
 
+            try {
+                pruneBackups(session.draft().backupsToKeep());
+            } catch (final IOException cleanupFailure) {
+                plugin.getLogger().warning("Configuration was saved, but old backup cleanup failed: " + cleanupFailure.getMessage());
+            }
             final long revision = revisions.bump();
             session.markClean(revision);
-            pruneBackups(session.draft().backupsToKeep());
             return new SaveResult(Status.SAVED, validation, "Saved configuration revision " + revision + ".");
         } catch (final Exception exception) {
             plugin.getLogger().severe("Admin GUI configuration save failed: " + exception.getMessage());
-            return new SaveResult(Status.FAILED, validation, exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
+            return new SaveResult(Status.FAILED, validation,
+                exception.getMessage() == null ? exception.getClass().getSimpleName() : exception.getMessage());
         } finally {
             if (temporary != null) {
                 try {
@@ -194,6 +201,6 @@ public final class AdminConfigPersistence {
         yaml.set(path + ".name", item.name());
         yaml.set(path + ".lore", item.lore());
         yaml.set(path + ".glow", item.glow());
-        if (item.customModelData() != null) yaml.set(path + ".custom-model-data", item.customModelData());
+        if (item.itemModel() != null && !item.itemModel().isBlank()) yaml.set(path + ".item-model", item.itemModel());
     }
 }

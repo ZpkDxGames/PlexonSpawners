@@ -86,15 +86,27 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "config.yml",
                 "messages.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
+                "com/plexon/spawners/breaking/NonSilkRewardMode.class",
                 "com/plexon/spawners/breaking/SpawnerBreakPolicy.class",
                 "com/plexon/spawners/config/ConfigBootstrap.class",
+                "com/plexon/spawners/config/ConfigRevisionService.class",
+                "com/plexon/spawners/config/ConfigV11Migration.class",
                 "com/plexon/spawners/config/PluginSettings.class",
                 "com/plexon/spawners/essence/EssenceRewardPolicy.class",
                 "com/plexon/spawners/essence/EssenceService.class",
                 "com/plexon/spawners/gui/SpawnerWithdrawGui.class",
                 "com/plexon/spawners/gui/WithdrawalPolicy.class",
+                "com/plexon/spawners/gui/admin/AdminConfigPersistence.class",
+                "com/plexon/spawners/gui/admin/AdminGuiHolder.class",
+                "com/plexon/spawners/gui/admin/AdminGuiService.class",
+                "com/plexon/spawners/gui/admin/AdminSettingsDraft.class",
+                "com/plexon/spawners/gui/admin/AdminSettingsSession.class",
                 "com/plexon/spawners/integration/WildStackerBridge.class",
-                "com/plexon/spawners/listener/SpawnerBreakListener.class"
+                "com/plexon/spawners/listener/SpawnerBreakListener.class",
+                "com/plexon/spawners/reward/CustomDropService.class",
+                "com/plexon/spawners/reward/RewardDelivery.class",
+                "com/plexon/spawners/reward/RewardItemFactory.class",
+                "com/plexon/spawners/reward/RewardRollPolicy.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
 
             val names = zip.entries().asSequence().map { it.name }.toSet()

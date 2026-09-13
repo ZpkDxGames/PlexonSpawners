@@ -17,14 +17,17 @@ public final class RewardItemFactory {
         String name,
         List<String> lore,
         boolean glow,
-        Integer customModelData
+        String itemModel
     ) {
         public ItemDefinition {
             lore = List.copyOf(lore == null ? List.of() : lore);
         }
 
         public boolean valid() {
-            return material != null && !material.isAir();
+            return material != null
+                && material != Material.AIR
+                && material != Material.CAVE_AIR
+                && material != Material.VOID_AIR;
         }
     }
 
@@ -44,7 +47,7 @@ public final class RewardItemFactory {
             section.getString("name", defaultName),
             section.getStringList("lore").isEmpty() ? defaultLore : section.getStringList("lore"),
             section.getBoolean("glow", defaultGlow),
-            section.contains("custom-model-data") ? section.getInt("custom-model-data") : null);
+            section.getString("item-model"));
     }
 
     public ItemStack build(final ItemDefinition definition, final NamespacedKey identityKey) {
@@ -60,14 +63,18 @@ public final class RewardItemFactory {
             meta.lore(lore);
         }
         meta.setEnchantmentGlintOverride(definition.glow());
-        if (definition.customModelData() != null) meta.setCustomModelData(definition.customModelData());
+        if (definition.itemModel() != null && !definition.itemModel().isBlank()) {
+            final NamespacedKey model = NamespacedKey.fromString(definition.itemModel());
+            if (model != null) meta.setItemModel(model);
+        }
         meta.getPersistentDataContainer().set(identityKey, PersistentDataType.INTEGER, 1);
         item.setItemMeta(meta);
         return item;
     }
 
     public ItemDefinition sanitize(final ItemStack source) {
-        if (source == null || source.getType().isAir()) return null;
+        if (source == null || source.getType() == Material.AIR
+            || source.getType() == Material.CAVE_AIR || source.getType() == Material.VOID_AIR) return null;
         final ItemMeta sourceMeta = source.getItemMeta();
         final String name = sourceMeta.hasDisplayName() && sourceMeta.displayName() != null
             ? miniMessage.serialize(sourceMeta.displayName())
@@ -75,9 +82,12 @@ public final class RewardItemFactory {
         final List<String> lore = sourceMeta.hasLore() && sourceMeta.lore() != null
             ? sourceMeta.lore().stream().map(miniMessage::serialize).toList()
             : List.of();
-        final boolean glow = Boolean.TRUE.equals(sourceMeta.getEnchantmentGlintOverride());
-        final Integer model = sourceMeta.hasCustomModelData() ? sourceMeta.getCustomModelData() : null;
-        return new ItemDefinition(source.getType(), name, lore, glow, model);
+        final boolean glow = sourceMeta.hasEnchantmentGlintOverride()
+            && Boolean.TRUE.equals(sourceMeta.getEnchantmentGlintOverride());
+        final String itemModel = sourceMeta.hasItemModel() && sourceMeta.getItemModel() != null
+            ? sourceMeta.getItemModel().asString()
+            : null;
+        return new ItemDefinition(source.getType(), name, lore, glow, itemModel);
     }
 
     private static String pretty(final String raw) {

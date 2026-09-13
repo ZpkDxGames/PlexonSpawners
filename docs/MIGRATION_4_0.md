@@ -2,33 +2,33 @@
 
 ## Purpose
 
-4.0 transfers all generic stacking ownership to WildStacker. This is not an in-place feature-toggle upgrade. The old Plexon managed-stack runtime is deleted from the final JAR.
+4.0 transfers all generic stacking ownership to WildStacker. The old Plexon managed-stack runtime is deleted from the final JAR. The administrator GUI and reward additions do not change that boundary.
 
 ## Before cutover
 
 Stop before replacing the production plugin and create rollback copies of:
 
 1. the current PlexonSpawners JAR;
-2. the entire `plugins/PlexonSpawners/` directory, including any SQLite/PDC-era data;
+2. the entire `plugins/PlexonSpawners/` directory, including legacy data;
 3. the production WildStacker configuration and relevant data;
 4. the world/server backup needed to restore placed spawner state.
 
-Record the exact Java version, Paper build, WildStacker version, old PlexonSpawners version, TPS/MSPT baseline, and current `main`/release artifact hashes.
+Record Java, Paper, WildStacker, old PlexonSpawners version, TPS/MSPT baseline and candidate hashes.
 
 ## Mandatory managed-stack inventory
 
-Inspect the 3.x persistence and loaded worlds before deleting old data. Produce:
+Inspect the 3.x persistence and loaded worlds before deleting old data. Record:
 
 ```text
 managed physical spawners = ...
 sum(old Plexon logical quantities) = ...
 ```
 
-If the total is zero and no placed spawner carries legacy Plexon managed state, migration may be classified `NOT_REQUIRED` with evidence.
+If both prove there is no legacy Plexon managed stack state, migration may be classified `MIGRATION NOT_REQUIRED` with evidence.
 
-If any managed logical stack exists, do not install the clean final 4.0 JAR until those quantities have been converted into WildStacker-authoritative stacks. Use a one-shot migration utility/temporary maintenance build if necessary. Do not ship that legacy conversion subsystem in final `v4.0.0`.
+If any managed logical stack exists, do not install the clean final 4.0 JAR until quantities are converted into WildStacker-authoritative stacks. A one-shot maintenance migration may be used, but the final 4.0 runtime must not contain the legacy stack engine.
 
-Reconcile:
+Required reconciliation:
 
 ```text
 sum(old Plexon logical quantities)
@@ -36,57 +36,78 @@ sum(old Plexon logical quantities)
 sum(new WildStacker logical quantities)
 ```
 
-Document every intentionally invalid/removed record. Silent loss and silent duplication are release blockers.
+Silent loss or duplication is a release blocker.
+
+## Configuration migration
+
+Two config paths intentionally differ:
+
+### Legacy pre-4.0 config (`config-version < 10`)
+
+PlexonSpawners creates `config-pre-4.0-backup.yml`, writes the clean 4.0 schema and copies only retained break/Essence policy values where safe. Removed managed/tier/upgrade/cap/migration/display/spawn-scaling/redstone sections do not return.
+
+### Existing 4.0 config (`config-version: 10`)
+
+Schema 10 is upgraded in place to schema 11 through a targeted migration. A `config-v10-before-v11.yml` backup is created. Existing breaking values, enabled worlds, Essence values and mob overrides, withdrawal settings/presets and unrelated keys are preserved.
+
+Compatibility mapping when no explicit new mode exists:
+
+```text
+essence.enabled: true  -> breaking.non-silk-reward-mode: ESSENCE
+essence.enabled: false -> breaking.non-silk-reward-mode: NONE
+```
+
+New custom-drop/admin/message defaults are added without sending a valid schema-10 config through the destructive pre-4.0 reset flow.
 
 ## WildStacker configuration audit
 
-Back up the exact installed WildStacker config. Verify on the production build—not from guessed keys—that:
+Back up and inspect the exact production WildStacker config. Verify on the installed build that:
 
-- spawner stacking is enabled;
-- entity stacking is enabled;
-- item stacking is enabled;
-- intended spawner stack limits and merge radius are correct;
+- spawner, entity and item stacking are enabled as intended;
+- intended stack limits/merge behavior are owned by WildStacker;
 - placement and spawner-item representation are WildStacker's responsibility;
-- player non-Silk breaks are allowed to reach WildStacker's unstack pipeline so PlexonSpawners can apply the Essence policy;
-- no WildStacker setting causes a second independent recovery drop after PlexonSpawners policy is applied.
+- non-Silk player breaks reach WildStacker's unstack pipeline so PlexonSpawners can apply reward policy;
+- no WildStacker setting produces a duplicate non-Silk recovery item;
+- overlapping amount/upgrade menus and spawn-egg interaction do not conflict with PlexonSpawners where the production profile expects them disabled.
 
-The 2026.2 public source shows that player breaking ultimately calls `StackedSpawner#runUnstack(breakAmount, player)` and then invokes the spawner provider/drop event after success. Production behavior must be verified against the installed build.
-
-## Config reset
-
-On first 4.0 startup, PlexonSpawners detects `config-version < 10`, creates `config-pre-4.0-backup.yml`, writes the clean schema, and copies only retained break/Essence policy values where safe. Removed `managed`, tier, upgrade, cap, migration, display, spawn-scaling, and redstone sections do not survive in the active config.
+PlexonSpawners does not write WildStacker configuration.
 
 ## Runtime certification
 
-With the candidate installed on PlexonCraft:
-
 ### WildStacker authority
-1. Place identical spawners within WildStacker merge range.
-2. Confirm one authoritative logical stack.
-3. Add more units and confirm the amount changes.
-4. Restart and confirm the amount persists.
-5. Prove PlexonSpawners created no parallel registry/database record.
+1. Place/merge identical spawners.
+2. Confirm one WildStacker logical stack and correct amount.
+3. Restart and confirm persistence.
+4. Prove PlexonSpawners created no parallel registry/database record.
 
 ### Silk recovery
-1. Record the WildStacker logical amount.
-2. Break with qualifying Silk Touch.
-3. Record the exact amount removed.
-4. Confirm the only recoverable spawner item is WildStacker-compatible and represents exactly that amount.
-5. Place the item again and confirm WildStacker recognizes/merges it.
+1. Break with exact qualifying Silk Touch.
+2. Confirm the exact WildStacker logical amount removed.
+3. Confirm the only spawner recovery item is WildStacker's authoritative representation.
+4. Place it again and confirm WildStacker recognizes/merges it.
 
-### Essence fallback
-1. Record the logical amount.
-2. Break without qualifying Silk.
-3. Confirm no recoverable spawner item appears.
-4. Confirm Essence roll count equals the exact logical amount WildStacker removed.
-5. Relog/restart and confirm no duplication.
+### Non-Silk rewards
+Temporarily use deterministic 100% settings for runtime proof. Verify `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, and `NONE`, including a stacked removal where `SpawnerUnstackEvent#getAmount() > 1`. Confirm one reward roll per logical unit and no recoverable spawner-item leak.
 
-### Withdrawal GUI
-Test stacks `1`, `2`, `9`, and `17`; presets; all available; full inventory; rapid repeated clicks; and a stale GUI while another player changes the stack. The physical block must always retain one logical spawner after GUI withdrawal.
+### Creative and per-mob policy
+Verify the configured Creative matrix exactly. Configure one mob override and prove it differs from another mob inheriting defaults.
+
+### Administrator GUI
+1. Open `/pspawners admin` as an authorized player.
+2. Change multiple values and close without saving; live runtime and disk must remain unchanged.
+3. Reopen, save a valid draft, verify a timestamped backup, immediate runtime application and persistence after restart.
+4. Open sessions as admins A/B, let B save, then prove A's older save is rejected as stale.
+
+See `docs/ADMIN_GUI.md` for the full GUI acceptance matrix.
+
+### Withdrawal regression
+Test stacks `1`, `2`, `9`, and `17`; presets; all available; full inventory; rapid clicks; and a stale GUI while the stack changes. The physical block must retain one logical spawner after GUI withdrawal, and GUI withdrawal must not grant break rewards.
 
 ### Coexistence/performance
-Spawn mobs from stacks and drop stackable items. Confirm WildStacker alone stacks them and PlexonSpawners does not cancel/rewrite those operations. Compare TPS/MSPT to the pre-cutover baseline and inspect task/database activity for removed 3.x loops.
+Confirm WildStacker alone stacks entities/items and controls stack state. Compare TPS/MSPT to the pre-cutover baseline and inspect task/database activity for removed 3.x loops.
 
 ## Rollback
 
-If any gate fails, stop the server cleanly and restore the matching old JAR, old PlexonSpawners data, WildStacker config, and world/data backup as required. Do not attempt an ad-hoc downgrade after a destructive quantity conversion without restoring the corresponding pre-migration state.
+If any gate fails, stop the server cleanly and restore the matching old JAR, PlexonSpawners data, WildStacker config, and world/data backup as required. Do not perform an ad-hoc downgrade after quantity conversion without restoring corresponding pre-migration state.
+
+Stable publication remains blocked until runtime evidence is `RUNTIME PASS` and migration evidence is `MIGRATION PASS` or `MIGRATION NOT_REQUIRED`.

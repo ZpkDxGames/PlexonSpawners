@@ -28,6 +28,7 @@ essence:
     lore:
       - '<gray>A concentrated fragment of spawner energy.</gray>'
     glow: true
+    item-model: null
   mob-overrides: {}
 
 custom-drop:
@@ -42,7 +43,8 @@ custom-drop:
       - '<gray>Dropped when a spawner is broken without Silk Touch.</gray>'
       - '<dark_gray>Configurable PlexonSpawners reward.</dark_gray>'
     glow: true
-    custom-model-data: null
+    # Paper 26.2 modern custom model reference, e.g. plexon:spawner_fragment.
+    item-model: null
   mob-overrides: {}
 
 # Optional per-mob reward-mode overrides. Essence/custom amount and chance overrides

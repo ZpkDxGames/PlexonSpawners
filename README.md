@@ -1,61 +1,71 @@
 # PlexonSpawners 4.0
 
-PlexonSpawners is the PlexonCraft-specific policy layer around **WildStacker**.
+PlexonSpawners is the PlexonCraft policy and administration layer around **WildStacker**.
 
 ## Ownership model
 
-WildStacker is a required dependency and the single authority for:
+WildStacker is a required dependency and the single authority for placed spawner quantities, stacking/merging, persistence, placement, spawner item representation, unstack operations, entity stacking, item stacking, limits and generic stack runtime state.
 
-- placed spawner stacking and logical stack amounts;
-- spawner merge/unstack behavior;
-- spawner item representation and placement;
-- mob/entity stacking;
-- dropped-item stacking;
-- stack limits, merge radius, persistence, and stack display behavior.
+PlexonSpawners owns only Plexon-specific policy and UX:
 
-PlexonSpawners owns only two player-facing policies:
+- qualifying Silk Touch recovery using WildStacker's authoritative spawner item;
+- configurable non-Silk rewards: `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, or `NONE`;
+- independent per-logical-spawner reward rolls and per-mob overrides;
+- a duplication-safe player withdrawal GUI;
+- a draft-based administrator policy GUI with validation, backups and stale-session protection.
 
-1. **Spawner recovery:** qualifying Silk Touch recovers WildStacker's authoritative spawner item; an unqualified player break awards configured Spawner Essence instead.
-2. **Spawner withdrawal:** right-click a WildStacker-managed spawner to withdraw logical units through a small GUI. The final logical spawner remains represented by the physical block and must be removed by breaking it.
-
-There is no Plexon-native stack registry, stack database, placement engine, entity aggregation backend, fallback stack implementation, tier/upgrades system, ownership/access model, redstone stack lock, or stack persistence loop in 4.0.
+There is no Plexon-native stack registry, stack database, placement/merge engine, entity aggregation backend, fallback stack implementation, tier/upgrades system, ownership model, redstone stack lock, or parallel stack persistence loop in 4.0.
 
 ## Requirements
 
 - Paper 26.2
 - Java 25
-- WildStacker compatible with API `2026.2` (production build must be verified during runtime certification)
+- WildStacker public API `2026.2`
 
 WildStacker is declared under `depend`, not `softdepend`; PlexonSpawners does not start without it.
 
 ## Commands
 
 ```text
+/pspawners admin
 /pspawners status
 /pspawners reload
 ```
+
+`/pspawners admin` requires a player. Status and reload support console use.
 
 ## Permissions
 
 ```text
 plexonspawners.admin
+plexonspawners.admin.gui
 plexonspawners.admin.status
 plexonspawners.admin.reload
 plexonspawners.bypass.silk
 plexonspawners.gui
 ```
 
+## Administrator GUI
+
+The admin interface edits an isolated draft. Clicking controls does not mutate live settings or write `config.yml`. Save validates the full draft, rejects stale revisions, creates a timestamped backup, writes through a same-directory temporary file with atomic replacement where supported, reloads runtime policy, then advances the in-memory configuration revision.
+
+The GUI covers break/Silk policy, Creative behavior, Essence, custom non-Silk rewards, per-mob overrides, enabled worlds, withdrawal presets, message toggles, diagnostics, save/discard/reload and sanitized held-item reward templates. See [`docs/ADMIN_GUI.md`](docs/ADMIN_GUI.md).
+
+## Reward semantics
+
+WildStacker's `SpawnerUnstackEvent#getAmount()` is the exact logical quantity used for reward rolls. A removal of eight logical spawners produces eight Essence rolls and, in combined mode, eight independent custom-item rolls. Successful rolls are aggregated before delivery.
+
+Silk recovery remains separate. A qualifying Silk break receives WildStacker's `StackedSpawner#getDropItem(amount)` representation and does not become a custom non-Silk item.
+
 ## Important WildStacker break-policy requirement
 
-PlexonSpawners observes WildStacker's public `SpawnerUnstackEvent` to obtain the exact logical amount successfully removed and `SpawnerDropEvent` to enforce the recovery output. WildStacker's production break settings must therefore allow non-Silk player breaks to reach WildStacker's unstack pipeline; if WildStacker itself rejects a non-Silk break before unstacking, PlexonSpawners cannot convert that rejected operation into Essence without reimplementing WildStacker's break engine.
+PlexonSpawners observes WildStacker's public `SpawnerUnstackEvent` and `SpawnerDropEvent`. Production WildStacker settings must allow non-Silk player breaks to reach that unstack pipeline. PlexonSpawners deliberately does not edit WildStacker configuration or reconstruct rejected breaks.
 
-Do not guess configuration keys from another WildStacker version. Inspect and back up the exact production WildStacker configuration before cutover.
+## Configuration migration
 
-## 3.x upgrade
+Schema 11 adds admin/reward settings. Existing schema 10 configurations use a targeted 10→11 migration; they are **not** sent through the pre-4.0 reset path. Existing break settings, Essence values/overrides, worlds and withdrawal presets remain intact. Old Essence-enabled behavior maps to `ESSENCE`; disabled Essence maps to `NONE` unless a mode was already explicitly configured.
 
-4.0 intentionally deletes the 3.x native stacking architecture. Read [`docs/MIGRATION_4_0.md`](docs/MIGRATION_4_0.md) before replacing a production JAR. Live 3.x managed-stack quantities must be inventoried and reconciled against WildStacker before old data is retired.
-
-On first 4.0 startup, a legacy configuration file is backed up as `config-pre-4.0-backup.yml` and reset to the clean schema. Retained break/Essence policy values are copied where safe; removed stack-system sections are not carried forward.
+For legacy 3.x migration and stack ownership cutover, read [`docs/MIGRATION_4_0.md`](docs/MIGRATION_4_0.md).
 
 ## Build
 
@@ -63,8 +73,8 @@ On first 4.0 startup, a legacy configuration file is backed up as `config-pre-4.
 gradle clean test check jar --no-daemon
 ```
 
-The distribution verification task requires the new 4.0 classes and fails if banned 3.x stack classes or shaded WildStacker classes are present.
+Distribution verification rejects restored legacy stack packages/classes and shaded WildStacker runtime classes.
 
 ## Stable release gate
 
-`v4.0.0` must not be published from CI evidence alone. The real PlexonCraft host must pass migration reconciliation (if needed), WildStacker ownership checks, Silk/Essence tests, withdrawal abuse tests, coexistence checks, and TPS/MSPT comparison first.
+`v4.0.0` must not be published from CI evidence alone. The real PlexonCraft host must pass migration reconciliation (or documented `MIGRATION NOT_REQUIRED`), WildStacker ownership checks, Silk/Essence/custom reward tests, admin/withdrawal GUI abuse tests, coexistence checks and TPS/MSPT comparison first.
