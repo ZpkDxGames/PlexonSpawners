@@ -1,18 +1,25 @@
 package com.plexon.spawners.gui;
 
 import java.util.UUID;
+import org.bukkit.Location;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.InventoryHolder;
 
 public final class SpawnerWithdrawGuiHolder implements InventoryHolder {
-    private final UUID spawnerId;
+    private final UUID playerId;
+    private final Location spawnerLocation;
 
-    public SpawnerWithdrawGuiHolder(final UUID spawnerId) {
-        this.spawnerId = spawnerId;
+    public SpawnerWithdrawGuiHolder(final UUID playerId, final Location spawnerLocation) {
+        this.playerId = playerId;
+        this.spawnerLocation = spawnerLocation.clone();
     }
 
-    public UUID spawnerId() {
-        return spawnerId;
+    public UUID playerId() {
+        return playerId;
+    }
+
+    public Location spawnerLocation() {
+        return spawnerLocation.clone();
     }
 
     @Override

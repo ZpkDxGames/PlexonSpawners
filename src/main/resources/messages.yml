@@ -1,25 +1,11 @@
-# ============================================================================
-# PlexonSpawners - PlexonCraft Message Theme
-# ============================================================================
-# All values support MiniMessage formatting.
-# Keep player-facing feedback short and readable; detailed configuration
-# explanations belong in config.yml and the admin GUI.
-# ============================================================================
-
 prefix: '<gradient:#56B9F2:#92E1FF><b>SPAWNERS</b></gradient> <dark_gray>»</dark_gray> '
 
 no-permission: '<#FF6B6B>You do not have permission to use that.</#FF6B6B>'
-player-only: '<#FF6B6B>This action is only available in-game.</#FF6B6B>'
-reloaded: '<#72F1B8>Spawner settings and item templates reloaded.</#72F1B8>'
-invalid-player: '<#FF6B6B>Player <white>%player%</white> is not online.</#FF6B6B>'
-invalid-entity: '<#FF6B6B>Unknown creature type: <white>%entity%</white>.</#FF6B6B>'
-invalid-number: '<#FF6B6B><white>%value%</white> must be a positive number.</#FF6B6B>'
-
-gave-spawner: '<#72F1B8>Gave <white>%amount%x %mob% Spawner</white> to <white>%player%</white>.</#72F1B8>'
-gave-essence: '<#72F1B8>Gave <white>%amount%x Spawner Essence</white> to <white>%player%</white>.</#72F1B8>'
-
-essence-set: '<#72F1B8>Spawner Essence template updated from your main hand.</#72F1B8> <#8B95A7>Its secure identity was applied automatically.</#8B95A7>'
-essence-empty-hand: '<#FFD166>Hold the item you want to use as Spawner Essence in your main hand.</#FFD166>'
-
-spawner-recovered: '<#72F1B8>Spawner recovered!</#72F1B8> <#D8DEE9>You secured a <white>%mob% Spawner</white>.</#D8DEE9>'
-essence-dropped: '<#D8DEE9>The spawner fractured, leaving <gradient:#C850C0:#FF7EB3><b>%amount%x Spawner Essence</b></gradient><#D8DEE9>.</#D8DEE9>'
+reloaded: '<#72F1B8>PlexonSpawners policy settings reloaded.</#72F1B8>'
+spawner-recovered: '<#72F1B8>Recovered <white>%amount%x %mob% Spawner</white> through WildStacker.</#72F1B8>'
+essence-awarded: '<#D8DEE9>The spawner fractured into <gradient:#C850C0:#FF7EB3><b>%amount%x Spawner Essence</b></gradient><#D8DEE9>.</#D8DEE9>'
+withdraw-success: '<#72F1B8>Withdrew <white>%amount%</white> logical spawner(s) from the WildStacker stack.</#72F1B8>'
+withdraw-unavailable: '<#FFD166>WildStacker does not recognize that block as a managed spawner stack.</#FFD166>'
+withdraw-stale: '<#FFD166>The spawner changed or no longer exists. The GUI was refreshed.</#FFD166>'
+withdraw-invalid: '<#FFD166>That withdrawal amount is no longer available.</#FFD166>'
+withdraw-failed: '<#FF6B6B>WildStacker rejected the withdrawal. No item was delivered.</#FF6B6B>'

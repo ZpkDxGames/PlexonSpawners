@@ -5,16 +5,20 @@ plugins {
 }
 
 group = "com.plexon"
-version = "3.4.0"
+version = "4.0.0"
 
 val pluginVersion = version.toString()
+val wildStackerApiVersion = "2026.2"
 
 repositories {
-    mavenLocal()
     mavenCentral()
     maven {
         name = "papermc"
         url = uri("https://repo.papermc.io/repository/maven-public/")
+    }
+    maven {
+        name = "bgsoftware-api"
+        url = uri("https://repo.bg-software.com/repository/api/")
     }
 }
 
@@ -26,12 +30,12 @@ java {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.121-stable")
-    compileOnly("com.zpkdxgames:PlexonCore:2.0.4")
+    compileOnly("com.bgsoftware:WildStackerAPI:$wildStackerApiVersion")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("io.papermc.paper:paper-api:26.2.build.121-stable")
-    testImplementation("com.zpkdxgames:PlexonCore:2.0.4")
+    testImplementation("com.bgsoftware:WildStackerAPI:$wildStackerApiVersion")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
@@ -70,7 +74,7 @@ tasks.jar {
 
 val verifyDistribution = tasks.register("verifyDistribution") {
     group = "verification"
-    description = "Checks the PlexonSpawners 3.4 distribution contract and dependency isolation."
+    description = "Verifies the PlexonSpawners 4.0 WildStacker-authoritative distribution contract."
     dependsOn(tasks.jar)
     doLast {
         val archive = tasks.jar.get().archiveFile.get().asFile
@@ -81,31 +85,46 @@ val verifyDistribution = tasks.register("verifyDistribution") {
             listOf(
                 "plugin.yml",
                 "config.yml",
+                "messages.yml",
                 "com/plexon/spawners/PlexonSpawners.class",
-                "com/plexon/spawners/api/PlexonSpawnersApi.class",
-                "com/plexon/spawners/compat/EntityStackBackend.class",
-                "com/plexon/spawners/compat/PhysicalFallbackBackend.class",
-                "com/plexon/spawners/compat/WildStackerCompat.class",
-                "com/plexon/spawners/config/NativeStackSettings.class",
-                "com/plexon/spawners/item/EssenceRewardPolicy.class",
-                "com/plexon/spawners/managed/ManagedSpawnAggregationService.class",
-                "com/plexon/spawners/managed/ManagedSpawnerRegistry.class",
-                "com/plexon/spawners/managed/NativeStackPolicy.class",
-                "com/plexon/spawners/managed/SpawnerMigrationState.class",
-                "com/plexon/spawners/managed/SpawnerMigrationService.class",
-                "com/plexon/spawners/managed/SpawnerStackDisplayService.class",
-                "com/plexon/spawners/managed/SpawnerStateService.class",
-                "com/plexon/spawners/managed/RedstoneSpawnerLockService.class",
-                "com/plexon/spawners/listener/NearbyStackCapListener.class",
-                "com/plexon/spawners/listener/SpawnerChunkListener.class",
-                "com/plexon/spawners/listener/SpawnerProtectionListener.class",
-                "com/plexon/spawners/gui/SpawnerControlGui.class",
-                "com/plexon/spawners/gui/SpawnerWithdrawGuiHolder.class"
+                "com/plexon/spawners/breaking/SpawnerBreakPolicy.class",
+                "com/plexon/spawners/config/ConfigBootstrap.class",
+                "com/plexon/spawners/config/PluginSettings.class",
+                "com/plexon/spawners/essence/EssenceRewardPolicy.class",
+                "com/plexon/spawners/essence/EssenceService.class",
+                "com/plexon/spawners/gui/SpawnerWithdrawGui.class",
+                "com/plexon/spawners/gui/WithdrawalPolicy.class",
+                "com/plexon/spawners/integration/WildStackerBridge.class",
+                "com/plexon/spawners/listener/SpawnerBreakListener.class"
             ).forEach { entry -> require(zip.getEntry(entry) != null) { "Missing JAR entry: $entry" } }
-            require(zip.entries().asSequence().none { it.name.startsWith("com/zpkdxgames/plexoncore/") }) {
-                "PlexonCore runtime classes must not be shaded into PlexonSpawners"
+
+            val names = zip.entries().asSequence().map { it.name }.toSet()
+            listOf(
+                "com/plexon/spawners/managed/",
+                "com/plexon/spawners/compat/",
+                "com/plexon/spawners/api/",
+                "com/plexon/spawners/integration/core/"
+            ).forEach { prefix ->
+                require(names.none { it.startsWith(prefix) }) { "Legacy architecture leaked into JAR: $prefix" }
             }
-            require(zip.entries().asSequence().none { it.name.startsWith("com/bgsoftware/wildstacker/") }) {
+            listOf(
+                "ManagedSpawnerRegistry.class",
+                "ManagedSpawnAggregationService.class",
+                "NativeStackPolicy.class",
+                "NearbyStackCapPolicy.class",
+                "PhysicalFallbackBackend.class",
+                "RedstoneSpawnerLockService.class",
+                "SpawnerMigrationService.class",
+                "SpawnerStackDisplayService.class",
+                "SpawnerStateService.class",
+                "SpawnerTier.class",
+                "SpawnerTuning.class",
+                "SpawnerPlaceListener.class",
+                "SpawnerChunkListener.class"
+            ).forEach { banned ->
+                require(names.none { it.endsWith(banned) }) { "Banned legacy class present: $banned" }
+            }
+            require(names.none { it.startsWith("com/bgsoftware/wildstacker/") }) {
                 "WildStacker runtime classes must not be shaded into PlexonSpawners"
             }
         }

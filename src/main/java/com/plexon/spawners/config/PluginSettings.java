@@ -3,14 +3,11 @@ package com.plexon.spawners.config;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
-import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
-import java.util.UUID;
-import org.bukkit.Bukkit;
-import org.bukkit.GameMode;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
@@ -18,8 +15,8 @@ import org.bukkit.entity.EntityType;
 
 public final class PluginSettings {
     public enum EssenceDelivery {
-        GROUND,
-        INVENTORY
+        INVENTORY,
+        GROUND
     }
 
     public record EssenceRule(int amount, double chance) {}
@@ -27,220 +24,100 @@ public final class PluginSettings {
     private volatile Snapshot runtime = Snapshot.defaults();
 
     public void reload(final FileConfiguration config) {
-        final boolean breakingEnabled = config.getBoolean("breaking.enabled", true);
-        final boolean takeOwnership = config.getBoolean("breaking.take-ownership", true);
-        final int requiredSilkTouchLevel = clamp(config.getInt("breaking.required-silk-touch-level", 3), 0, 255);
-        final boolean silkBypassPermissionEnabled = config.getBoolean("breaking.allow-silk-bypass-permission", false);
-        final boolean dropSpawnerWhenQualified = config.getBoolean("breaking.drop-spawner-when-qualified", true);
-        final boolean dropExperience = config.getBoolean("breaking.drop-experience", false);
-        final boolean creativeDrops = config.getBoolean("breaking.creative-drops", false);
-
-        final Set<String> worldNames = new HashSet<>();
-        final Set<UUID> worldIds = new HashSet<>();
-        for (final String configuredWorld : config.getStringList("breaking.enabled-worlds")) {
-            if (configuredWorld.isBlank()) {
-                continue;
-            }
-            worldNames.add(configuredWorld.toLowerCase(Locale.ROOT));
-            final World loadedWorld = Bukkit.getWorld(configuredWorld);
-            if (loadedWorld != null) {
-                worldIds.add(loadedWorld.getUID());
-            }
+        final Set<String> enabledWorlds = new LinkedHashSet<>();
+        for (final String world : config.getStringList("breaking.enabled-worlds")) {
+            if (!world.isBlank()) enabledWorlds.add(world.toLowerCase(Locale.ROOT));
         }
 
+        final int requiredSilk = clamp(config.getInt("breaking.required-silk-touch-level", 1), 0, 255);
+        final int defaultAmount = clamp(config.getInt("essence.default-amount", 1), 1, 4096);
+        final double defaultChance = clampChance(config.getDouble("essence.default-chance", 35.0));
         final List<String> warnings = new ArrayList<>();
-        final boolean essenceEnabled = config.getBoolean("essence.enabled", true);
-        final int defaultEssenceAmount = clamp(config.getInt("essence.default-amount", 1), 1, 4096);
-        final double defaultEssenceChance = clampChance(config.getDouble("essence.default-chance", 35.0));
-        final EssenceDelivery essenceDelivery = parseDelivery(config.getString("essence.delivery", "GROUND"), warnings);
 
-        final EnumMap<EntityType, Integer> amountOverrides = new EnumMap<>(EntityType.class);
-        final EnumMap<EntityType, Double> chanceOverrides = new EnumMap<>(EntityType.class);
-        final ConfigurationSection section = config.getConfigurationSection("essence.mob-overrides");
-        if (section != null) {
-            for (final String key : section.getKeys(false)) {
+        EssenceDelivery delivery;
+        try {
+            delivery = EssenceDelivery.valueOf(config.getString("essence.delivery", "INVENTORY").toUpperCase(Locale.ROOT));
+        } catch (final IllegalArgumentException exception) {
+            delivery = EssenceDelivery.INVENTORY;
+            warnings.add("Invalid essence.delivery; using INVENTORY.");
+        }
+
+        final EnumMap<EntityType, EssenceRule> rules = new EnumMap<>(EntityType.class);
+        for (final EntityType type : EntityType.values()) rules.put(type, new EssenceRule(defaultAmount, defaultChance));
+        final ConfigurationSection overrides = config.getConfigurationSection("essence.mob-overrides");
+        if (overrides != null) {
+            for (final String key : overrides.getKeys(false)) {
                 final EntityType type = parseEntityType(key);
                 if (type == null) {
                     warnings.add("Unknown essence.mob-overrides entity type: " + key);
                     continue;
                 }
-
-                final ConfigurationSection mobSection = section.getConfigurationSection(key);
-                if (mobSection != null) {
-                    if (mobSection.contains("amount")) {
-                        amountOverrides.put(type, clamp(mobSection.getInt("amount", defaultEssenceAmount), 1, 4096));
-                    }
-                    if (mobSection.contains("chance")) {
-                        chanceOverrides.put(type, clampChance(mobSection.getDouble("chance", defaultEssenceChance)));
-                    }
-                    continue;
-                }
-
-                // 1.x compatibility: `BLAZE: 3` is treated as an amount-only override.
-                if (section.isInt(key)) {
-                    amountOverrides.put(type, clamp(section.getInt(key, defaultEssenceAmount), 1, 4096));
+                final ConfigurationSection mob = overrides.getConfigurationSection(key);
+                if (mob != null) {
+                    rules.put(type, new EssenceRule(
+                        clamp(mob.getInt("amount", defaultAmount), 1, 4096),
+                        clampChance(mob.getDouble("chance", defaultChance))));
+                } else if (overrides.isInt(key)) {
+                    rules.put(type, new EssenceRule(clamp(overrides.getInt(key), 1, 4096), defaultChance));
                 }
             }
         }
 
-        final EnumMap<EntityType, EssenceRule> essenceRules = new EnumMap<>(EntityType.class);
-        int maximumEssenceAmount = defaultEssenceAmount;
-        for (final EntityType type : EntityType.values()) {
-            final int amount = amountOverrides.getOrDefault(type, defaultEssenceAmount);
-            final double chance = chanceOverrides.getOrDefault(type, defaultEssenceChance);
-            essenceRules.put(type, new EssenceRule(amount, chance));
-            maximumEssenceAmount = Math.max(maximumEssenceAmount, amount);
+        final LinkedHashSet<Integer> presetSet = new LinkedHashSet<>();
+        for (final int preset : config.getIntegerList("gui.withdraw-presets")) {
+            if (preset > 0) presetSet.add(Math.min(4096, preset));
         }
-
-        if (essenceEnabled && essenceDelivery == EssenceDelivery.GROUND) {
-            final int physicalStacks = (maximumEssenceAmount + 63) / 64;
-            if (physicalStacks >= 16) {
-                warnings.add(
-                    "Ground Essence configuration can create up to " + physicalStacks
-                        + " item entities from one break (logical amount " + maximumEssenceAmount + ")."
-                );
-            }
-        }
+        final List<Integer> presets = presetSet.isEmpty() ? List.of(1, 8, 16, 32, 64) : List.copyOf(presetSet);
 
         runtime = new Snapshot(
-            breakingEnabled,
-            takeOwnership,
-            requiredSilkTouchLevel,
-            silkBypassPermissionEnabled,
-            dropSpawnerWhenQualified,
-            dropExperience,
-            creativeDrops,
-            Collections.unmodifiableSet(worldNames),
-            Collections.unmodifiableSet(worldIds),
-            essenceEnabled,
-            defaultEssenceAmount,
-            defaultEssenceChance,
-            essenceDelivery,
-            Collections.unmodifiableMap(amountOverrides),
-            Collections.unmodifiableMap(chanceOverrides),
-            Collections.unmodifiableMap(essenceRules),
-            config.getBoolean("messages.break-success-enabled", false),
-            config.getBoolean("messages.break-failed-enabled", false),
-            List.copyOf(warnings)
-        );
+            config.getBoolean("breaking.enabled", true),
+            requiredSilk,
+            config.getBoolean("breaking.allow-silk-bypass-permission", false),
+            config.getBoolean("breaking.creative.recover-spawner", false),
+            config.getBoolean("breaking.creative.award-essence", false),
+            Collections.unmodifiableSet(enabledWorlds),
+            config.getBoolean("essence.enabled", true),
+            defaultAmount,
+            defaultChance,
+            delivery,
+            Collections.unmodifiableMap(rules),
+            config.getBoolean("gui.enabled", true),
+            config.getBoolean("gui.open-on-right-click", true),
+            config.getString("gui.title", "<gradient:#56B9F2:#92E1FF><b>Spawner Withdrawal</b></gradient>"),
+            presets,
+            config.getBoolean("messages.silk-recovered", true),
+            config.getBoolean("messages.essence-awarded", true),
+            config.getBoolean("messages.withdraw-success", true),
+            config.getBoolean("messages.withdraw-failed", true),
+            List.copyOf(warnings));
     }
 
     public boolean isWorldEnabled(final World world) {
-        final Snapshot snapshot = runtime;
-        if (snapshot.enabledWorldNames().isEmpty()) {
-            return true;
-        }
-        if (snapshot.enabledWorldIds().contains(world.getUID())) {
-            return true;
-        }
-        return snapshot.enabledWorldNames().contains(world.getName().toLowerCase(Locale.ROOT));
-    }
-
-    public boolean isWorldEnabled(final String worldName) {
-        final Snapshot snapshot = runtime;
-        return snapshot.enabledWorldNames().isEmpty()
-            || snapshot.enabledWorldNames().contains(worldName.toLowerCase(Locale.ROOT));
-    }
-
-    public boolean shouldHandleCreative(final GameMode gameMode) {
-        return gameMode != GameMode.CREATIVE || runtime.creativeDrops();
+        final Set<String> worlds = runtime.enabledWorlds();
+        return worlds.isEmpty() || worlds.contains(world.getName().toLowerCase(Locale.ROOT));
     }
 
     public EssenceRule essenceRule(final EntityType type) {
-        final EssenceRule rule = runtime.essenceRules().get(type);
-        return rule == null
-            ? new EssenceRule(runtime.defaultEssenceAmount(), runtime.defaultEssenceChance())
-            : rule;
+        return runtime.essenceRules().getOrDefault(type,
+            new EssenceRule(runtime.defaultEssenceAmount(), runtime.defaultEssenceChance()));
     }
 
-    public int essenceAmount(final EntityType type) {
-        return essenceRule(type).amount();
-    }
-
-    public double essenceChance(final EntityType type) {
-        return essenceRule(type).chance();
-    }
-
-    public boolean hasEssenceOverride(final EntityType type) {
-        final Snapshot snapshot = runtime;
-        return snapshot.essenceAmountOverrides().containsKey(type)
-            || snapshot.essenceChanceOverrides().containsKey(type);
-    }
-
-    public int enabledWorldCount() {
-        return runtime.enabledWorldNames().size();
-    }
-
-    public int essenceOverrideCount() {
-        final Set<EntityType> combined = new HashSet<>(runtime.essenceAmountOverrides().keySet());
-        combined.addAll(runtime.essenceChanceOverrides().keySet());
-        return combined.size();
-    }
-
-    public List<String> validationWarnings() {
-        return runtime.validationWarnings();
-    }
-
-    public boolean breakingEnabled() {
-        return runtime.breakingEnabled();
-    }
-
-    public boolean takeOwnership() {
-        return runtime.takeOwnership();
-    }
-
-    public int requiredSilkTouchLevel() {
-        return runtime.requiredSilkTouchLevel();
-    }
-
-    public boolean silkBypassPermissionEnabled() {
-        return runtime.silkBypassPermissionEnabled();
-    }
-
-    public boolean dropSpawnerWhenQualified() {
-        return runtime.dropSpawnerWhenQualified();
-    }
-
-    public boolean dropExperience() {
-        return runtime.dropExperience();
-    }
-
-    public boolean creativeDrops() {
-        return runtime.creativeDrops();
-    }
-
-    public boolean essenceEnabled() {
-        return runtime.essenceEnabled();
-    }
-
-    public int defaultEssenceAmount() {
-        return runtime.defaultEssenceAmount();
-    }
-
-    public double defaultEssenceChance() {
-        return runtime.defaultEssenceChance();
-    }
-
-    public EssenceDelivery essenceDelivery() {
-        return runtime.essenceDelivery();
-    }
-
-    public boolean breakSuccessMessages() {
-        return runtime.breakSuccessMessages();
-    }
-
-    public boolean breakFailedMessages() {
-        return runtime.breakFailedMessages();
-    }
-
-    private static EssenceDelivery parseDelivery(final String input, final List<String> warnings) {
-        try {
-            return EssenceDelivery.valueOf(input.toUpperCase(Locale.ROOT));
-        } catch (final IllegalArgumentException exception) {
-            warnings.add("Invalid essence.delivery '" + input + "'; using GROUND.");
-            return EssenceDelivery.GROUND;
-        }
-    }
+    public boolean breakingEnabled() { return runtime.breakingEnabled(); }
+    public int requiredSilkTouchLevel() { return runtime.requiredSilkTouchLevel(); }
+    public boolean silkBypassPermissionEnabled() { return runtime.silkBypassPermissionEnabled(); }
+    public boolean creativeRecoverSpawner() { return runtime.creativeRecoverSpawner(); }
+    public boolean creativeAwardEssence() { return runtime.creativeAwardEssence(); }
+    public boolean essenceEnabled() { return runtime.essenceEnabled(); }
+    public EssenceDelivery essenceDelivery() { return runtime.essenceDelivery(); }
+    public boolean guiEnabled() { return runtime.guiEnabled(); }
+    public boolean guiOpenOnRightClick() { return runtime.guiOpenOnRightClick(); }
+    public String guiTitle() { return runtime.guiTitle(); }
+    public List<Integer> withdrawPresets() { return runtime.withdrawPresets(); }
+    public boolean silkRecoveredMessage() { return runtime.silkRecoveredMessage(); }
+    public boolean essenceAwardedMessage() { return runtime.essenceAwardedMessage(); }
+    public boolean withdrawSuccessMessage() { return runtime.withdrawSuccessMessage(); }
+    public boolean withdrawFailedMessage() { return runtime.withdrawFailedMessage(); }
+    public List<String> validationWarnings() { return runtime.validationWarnings(); }
 
     public static EntityType parseEntityType(final String input) {
         try {
@@ -255,59 +132,37 @@ public final class PluginSettings {
     }
 
     private static double clampChance(final double value) {
-        if (!Double.isFinite(value)) {
-            return 0.0;
-        }
-        return Math.max(0.0, Math.min(100.0, value));
+        if (!Double.isFinite(value)) return 0.0D;
+        return Math.max(0.0D, Math.min(100.0D, value));
     }
 
     private record Snapshot(
         boolean breakingEnabled,
-        boolean takeOwnership,
         int requiredSilkTouchLevel,
         boolean silkBypassPermissionEnabled,
-        boolean dropSpawnerWhenQualified,
-        boolean dropExperience,
-        boolean creativeDrops,
-        Set<String> enabledWorldNames,
-        Set<UUID> enabledWorldIds,
+        boolean creativeRecoverSpawner,
+        boolean creativeAwardEssence,
+        Set<String> enabledWorlds,
         boolean essenceEnabled,
         int defaultEssenceAmount,
         double defaultEssenceChance,
         EssenceDelivery essenceDelivery,
-        Map<EntityType, Integer> essenceAmountOverrides,
-        Map<EntityType, Double> essenceChanceOverrides,
         Map<EntityType, EssenceRule> essenceRules,
-        boolean breakSuccessMessages,
-        boolean breakFailedMessages,
+        boolean guiEnabled,
+        boolean guiOpenOnRightClick,
+        String guiTitle,
+        List<Integer> withdrawPresets,
+        boolean silkRecoveredMessage,
+        boolean essenceAwardedMessage,
+        boolean withdrawSuccessMessage,
+        boolean withdrawFailedMessage,
         List<String> validationWarnings
     ) {
         private static Snapshot defaults() {
-            final EnumMap<EntityType, EssenceRule> defaultRules = new EnumMap<>(EntityType.class);
-            for (final EntityType type : EntityType.values()) {
-                defaultRules.put(type, new EssenceRule(1, 35.0));
-            }
-            return new Snapshot(
-                true,
-                true,
-                3,
-                false,
-                true,
-                false,
-                false,
-                Set.of(),
-                Set.of(),
-                true,
-                1,
-                35.0,
-                EssenceDelivery.GROUND,
-                Map.of(),
-                Map.of(),
-                Collections.unmodifiableMap(defaultRules),
-                false,
-                false,
-                List.of()
-            );
+            return new Snapshot(true, 1, false, false, false, Set.of(), true, 1, 35.0D,
+                EssenceDelivery.INVENTORY, Map.of(), true, true,
+                "<gradient:#56B9F2:#92E1FF><b>Spawner Withdrawal</b></gradient>",
+                List.of(1, 8, 16, 32, 64), true, true, true, true, List.of());
         }
     }
 }

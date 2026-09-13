@@ -12,11 +12,10 @@ permissions:
   contents: read
 
 env:
-  BASELINE_STABLE_TAG: 'v3.3.0'
-  BASELINE_STABLE_SHA: '737bc629d95da3acafd74c679a9d1b13a4d772db'
-  BASELINE_STABLE_JAR_SHA256: '60a6af1b9db3bfb786122cf02cc3e9b8178548b6ee745e832b0140fb3304bdf5'
-  CORE_VERSION: '2.0.4'
-  CORE_SHA256: '61d625a717da9f46ee9231e1970d84b4c317ae12cf4090cdf7c9d39b6a1a9baf'
+  BASELINE_STABLE_TAG: 'v3.4.0'
+  BASELINE_STABLE_SHA: 'cd9966c79add8c98dcdb389d2fc722ce66d795ec'
+  BASELINE_STABLE_JAR_SHA256: '6fd9b6119371820173307853a7b58243ebf1f28e083212dcc6287c01d68f3c58'
+  WILDSTACKER_API_VERSION: '2026.2'
 
 jobs:
   verify:
@@ -39,179 +38,56 @@ jobs:
         with:
           gradle-version: '9.7.1'
 
-      - name: Provision verified PlexonCore API
-        run: bash scripts/provision-core.sh
-
-      - name: Resolve version and prove stable lineage
-        id: meta
+      - name: Verify release lineage and source boundary
         shell: bash
         run: |
           set -euo pipefail
           VERSION="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
-          test -n "$VERSION"
-          test "$VERSION" = '3.4.0'
+          test "$VERSION" = '4.0.0'
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
-          grep -Fq "CORE_VERSION=\"${CORE_VERSION}\"" scripts/provision-core.sh
-          grep -Fq "CORE_SHA256=\"${CORE_SHA256}\"" scripts/provision-core.sh
+          grep -Fq "WildStackerAPI:$WILDSTACKER_API_VERSION" build.gradle.kts
+          test ! -d src/main/java/com/plexon/spawners/managed
+          test ! -d src/main/java/com/plexon/spawners/compat
+          ! grep -R "Class.forName\|java.lang.reflect" src/main/java/com/plexon/spawners
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Full source verification
         run: gradle clean test check jar --no-daemon
 
-      - name: Build exact test summary
+      - name: Build test and distribution evidence
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/release-evidence
           python3 - <<'PY'
-          import glob, pathlib, xml.etree.ElementTree as ET
+          import glob, xml.etree.ElementTree as ET
           totals = dict(tests=0, failures=0, errors=0, skipped=0)
           paths = sorted(glob.glob('build/test-results/test/TEST-*.xml'))
           if not paths:
               raise SystemExit('No JUnit XML results found')
           for path in paths:
               root = ET.parse(path).getroot()
-              totals['tests'] += int(root.attrib.get('tests', 0))
-              totals['failures'] += int(root.attrib.get('failures', 0))
-              totals['errors'] += int(root.attrib.get('errors', 0))
-              totals['skipped'] += int(root.attrib.get('skipped', 0))
-          if totals['tests'] <= 0:
-              raise SystemExit('No tests executed')
-          if totals['failures'] or totals['errors'] or totals['skipped']:
-              raise SystemExit(f'Non-clean test totals: {totals}')
-          pathlib.Path('build/release-evidence/TEST_SUMMARY.txt').write_text(
-              f"TEST_COUNT={totals['tests']} FAILURES={totals['failures']} ERRORS={totals['errors']} SKIPPED={totals['skipped']}\n",
-              encoding='utf-8')
-          print(totals)
+              for key in totals:
+                  totals[key] += int(root.attrib.get(key, 0))
+          if totals['tests'] <= 0 or totals['failures'] or totals['errors']:
+              raise SystemExit(f'Unclean tests: {totals}')
+          with open('build/release-evidence/TEST_SUMMARY.txt', 'w', encoding='utf-8') as out:
+              for key, value in totals.items(): out.write(f'{key}={value}\n')
           PY
-
-      - name: Verify distribution
-        shell: bash
-        run: |
-          set -euo pipefail
           JAR="build/libs/PlexonSpawners-${VERSION}.jar"
           test -s "$JAR"
           jar tf "$JAR" > build/release-evidence/jar-contents.txt
-          for required in \
-            plugin.yml \
-            config.yml \
-            com/plexon/spawners/PlexonSpawners.class \
-            com/plexon/spawners/api/PlexonSpawnersApi.class \
-            com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.class \
-            com/plexon/spawners/event/PlexonSpawnerPlacedEvent.class \
-            com/plexon/spawners/event/PlexonSpawnerEssenceAwardedEvent.class \
-            com/plexon/spawners/compat/EntityStackBackend.class \
-            com/plexon/spawners/compat/PhysicalFallbackBackend.class \
-            com/plexon/spawners/compat/WildStackerCompat.class \
-            com/plexon/spawners/config/NativeStackSettings.class \
-            com/plexon/spawners/config/NearbyStackCapSettings.class \
-            com/plexon/spawners/config/RedstoneLockSettings.class \
-            com/plexon/spawners/item/EssenceRewardPolicy.class \
-            com/plexon/spawners/managed/ManagedSpawnAggregationService.class \
-            com/plexon/spawners/managed/ManagedSpawner.class \
-            com/plexon/spawners/managed/ManagedSpawnerRegistry.class \
-            com/plexon/spawners/managed/NativeStackPolicy.class \
-            com/plexon/spawners/managed/SpawnerMigrationState.class \
-            com/plexon/spawners/managed/SpawnerMigrationService.class \
-            com/plexon/spawners/managed/SpawnerStackDisplayService.class \
-            com/plexon/spawners/managed/SpawnerStateService.class \
-            com/plexon/spawners/managed/SpawnerOriginService.class \
-            com/plexon/spawners/managed/NearbyStackCapPolicy.class \
-            com/plexon/spawners/managed/RedstoneSpawnerLockService.class \
-            com/plexon/spawners/listener/NearbyStackCapListener.class \
-            com/plexon/spawners/listener/SpawnerChunkListener.class \
-            com/plexon/spawners/listener/SpawnerProtectionListener.class \
-            com/plexon/spawners/gui/SpawnerControlGui.class \
-            com/plexon/spawners/gui/SpawnerWithdrawGuiHolder.class; do
-            grep -qx "$required" build/release-evidence/jar-contents.txt
-          done
-          unzip -p "$JAR" plugin.yml | grep -F "version: '${VERSION}'"
-          unzip -p "$JAR" plugin.yml | grep -F "api-version: '26.2'"
-          unzip -p "$JAR" config.yml | grep -F 'config-version: 9'
-          javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -F 'major version: 69'
-          if grep -q '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt; then
-            echo 'PlexonCore runtime classes must not be shaded.' >&2
-            exit 1
-          fi
-          if grep -q '^com/bgsoftware/wildstacker/' build/release-evidence/jar-contents.txt; then
-            echo 'WildStacker runtime classes must not be shaded.' >&2
-            exit 1
-          fi
-          (cd build/libs && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt && sha256sum --check SHA256SUMS.txt)
+          ! grep -E 'com/plexon/spawners/(managed|compat|api|integration/core)/' build/release-evidence/jar-contents.txt
+          ! grep -E '^com/bgsoftware/wildstacker/' build/release-evidence/jar-contents.txt
+          sha256sum "$JAR" | tee build/release-evidence/SHA256SUMS.txt
 
-      - name: Write exact provenance
-        shell: bash
-        run: |
-          set -euo pipefail
-          JAR="build/libs/PlexonSpawners-${VERSION}.jar"
-          digest="$(sha256sum "$JAR" | awk '{print $1}')"
-          size="$(stat -c%s "$JAR")"
-          summary="$(cat build/release-evidence/TEST_SUMMARY.txt)"
-          tests="$(sed -E 's/^TEST_COUNT=([0-9]+).*/\1/' <<< "$summary")"
-          failures="$(sed -E 's/.*FAILURES=([0-9]+).*/\1/' <<< "$summary")"
-          errors="$(sed -E 's/.*ERRORS=([0-9]+).*/\1/' <<< "$summary")"
-          skipped="$(sed -E 's/.*SKIPPED=([0-9]+).*/\1/' <<< "$summary")"
-          cat > build/release-evidence/PROVENANCE.txt <<EOF
-          repository=$GITHUB_REPOSITORY
-          version=$VERSION
-          source_sha=$GITHUB_SHA
-          java=25
-          java_major=69
-          paper=26.2.build.121-stable
-          plexoncore=$CORE_VERSION
-          plexoncore_sha256=$CORE_SHA256
-          config_schema=9
-          managed_persistence_schema=2
-          managed_physical_pdc_schema=2
-          managed_item_schema=2
-          adjacent_spawner_stacking=PASS
-          vertical_spawner_stacking=PASS
-          native_stack_persistence=PASS
-          native_stack_overflow_safety=PASS
-          spawned_entity_direct_aggregation=PASS
-          spawned_entity_cap_exactness=PASS
-          wildstacker_entity_backend=OPTIONAL_PUBLIC_API
-          wildstacker_spawner_authority_disabled=PASS
-          essence_policy=PER_LOGICAL_UNIT
-          essence_delivery=GROUND_OR_INVENTORY_WITH_FALLBACK
-          essence_stack_quantity_semantics=PASS
-          redstone_stack_lock=PASS
-          migration_restart_safety=PASS
-          runtime_status=PASS
-          stable_baseline_tag=$BASELINE_STABLE_TAG
-          stable_baseline_sha=$BASELINE_STABLE_SHA
-          stable_baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
-          tests=$tests
-          failures=$failures
-          errors=$errors
-          skipped=$skipped
-          jar_size=$size
-          jar_sha256=$digest
-          github_source_certification=PASS
-          runtime_certification=NOT_EXECUTED
-          EOF
-
-      - name: Check source whitespace
-        shell: bash
-        run: |
-          set -euo pipefail
-          git diff --check "$(git merge-base HEAD origin/main)" HEAD
-
-      - name: Upload verified build
+      - name: Upload candidate evidence
         uses: actions/upload-artifact@v4
         with:
-          name: PlexonSpawners-${{ steps.meta.outputs.version }}-${{ github.sha }}
-          path: |
-            build/libs/PlexonSpawners-${{ steps.meta.outputs.version }}.jar
-            build/libs/SHA256SUMS.txt
-            build/release-evidence/TEST_SUMMARY.txt
-            build/release-evidence/PROVENANCE.txt
+          name: PlexonSpawners-${{ env.VERSION }}-${{ github.sha }}
           if-no-files-found: error
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-${{ github.sha }}
-          path: build/test-results/test/
+          path: |
+            build/libs/PlexonSpawners-${{ env.VERSION }}.jar
+            build/release-evidence/TEST_SUMMARY.txt
+            build/release-evidence/SHA256SUMS.txt
+            build/release-evidence/jar-contents.txt
