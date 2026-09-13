@@ -40,6 +40,19 @@ final class ArchitectureContractTest {
     }
 
     @Test
+    void adminGiveDelegatesSpawnerItemAuthorityToWildStacker() throws IOException {
+        final String command = Files.readString(Path.of("src/main/java/com/plexon/spawners/command/SpawnersCommand.java"));
+        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
+        assertTrue(command.contains("plexonspawners.admin.give"));
+        assertTrue(command.contains("stacker give -s "));
+        assertTrue(command.contains("spawner \" + mobType.name() + \" \" + amount"));
+        assertFalse(command.contains("new ItemStack"));
+        assertFalse(command.contains("PersistentDataContainer"));
+        assertTrue(pluginYml.contains("plexonspawners.admin.give:"));
+        assertTrue(pluginYml.contains("/pspawners <admin|give|status|reload>"));
+    }
+
+    @Test
     void adminConfigDoesNotExposeWildStackerOwnedStackControls() throws IOException {
         final String config = Files.readString(Path.of("src/main/resources/config.yml"));
         assertFalse(config.contains("merge-radius:"));
