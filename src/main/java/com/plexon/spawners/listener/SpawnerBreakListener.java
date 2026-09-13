@@ -105,8 +105,12 @@ public final class SpawnerBreakListener implements Listener {
         if (!context.completed().compareAndSet(false, true)) return;
         remove(context);
 
-        final int expectedAfter = context.beforeAmount() - context.amount();
-        final int current = context.stackedSpawner().getStackAmount();
+        // SpawnerUnstackEvent is emitted before WildStacker mutates/removes the stack. Re-resolve
+        // the location on the next tick so validation reflects WildStacker's authoritative state,
+        // including the final-spawner case where the block/cache entry no longer exists.
+        final int expectedAfter = Math.max(0, context.beforeAmount() - context.amount());
+        final StackedSpawner currentSpawner = wildStacker.resolve(context.location());
+        final int current = currentSpawner == null ? 0 : Math.max(0, currentSpawner.getStackAmount());
         if (current > expectedAfter) return;
 
         if (context.decision().recoverSpawner()) {

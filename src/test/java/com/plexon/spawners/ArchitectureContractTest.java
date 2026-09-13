@@ -35,21 +35,35 @@ final class ArchitectureContractTest {
         assertTrue(listener.contains("SpawnerUnstackEvent"));
         assertTrue(listener.contains("SpawnerDropEvent"));
         assertTrue(listener.contains("event.getAmount()"));
+        assertTrue(listener.contains("wildStacker.resolve(context.location())"));
+        assertTrue(listener.contains("currentSpawner == null ? 0"));
         assertFalse(listener.contains("PersistentDataContainer"));
         assertFalse(listener.contains("getNearbyEntities"));
     }
 
     @Test
-    void adminGiveDelegatesSpawnerItemAuthorityToWildStacker() throws IOException {
+    void adminGiveDelegatesSpawnerItemAuthorityToNamespacedWildStackerCommand() throws IOException {
         final String command = Files.readString(Path.of("src/main/java/com/plexon/spawners/command/SpawnersCommand.java"));
         final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
         assertTrue(command.contains("plexonspawners.admin.give"));
-        assertTrue(command.contains("stacker give -s "));
+        assertTrue(command.contains("wildstacker:stacker give -s "));
+        assertFalse(command.contains("= \"stacker give -s "));
         assertTrue(command.contains("spawner \" + mobType.name() + \" \" + amount"));
         assertFalse(command.contains("new ItemStack"));
         assertFalse(command.contains("PersistentDataContainer"));
         assertTrue(pluginYml.contains("plexonspawners.admin.give:"));
         assertTrue(pluginYml.contains("/pspawners <admin|give|status|reload>"));
+    }
+
+    @Test
+    void creativeDefaultsRecoverSpawnerAndAwardEssence() throws IOException {
+        final String config = Files.readString(Path.of("src/main/resources/config.yml"));
+        final int creative = config.indexOf("  creative:");
+        final int worldScope = config.indexOf("  # Empty means all worlds", creative);
+        assertTrue(creative >= 0 && worldScope > creative);
+        final String creativeBlock = config.substring(creative, worldScope);
+        assertTrue(creativeBlock.contains("recover-spawner: true"));
+        assertTrue(creativeBlock.contains("award-essence: true"));
     }
 
     @Test

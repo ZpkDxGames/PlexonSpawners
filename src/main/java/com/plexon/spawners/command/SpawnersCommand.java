@@ -136,9 +136,9 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
             return true;
         }
 
-        // WildStacker owns spawner item representation. Delegate to its own give path instead of
-        // duplicating provider-specific NBT/PDC/upgrade metadata inside PlexonSpawners.
-        final String wildStackerCommand = "stacker give -s " + target.getName()
+        // WildStacker owns spawner item representation. Use its namespaced command so another
+        // plugin registering the generic "stacker" label cannot intercept the delegation.
+        final String wildStackerCommand = "wildstacker:stacker give -s " + target.getName()
             + " spawner " + mobType.name() + " " + amount;
         if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), wildStackerCommand)) {
             messages.send(sender, "give-failed");

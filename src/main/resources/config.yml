@@ -9,9 +9,12 @@ breaking:
   allow-silk-bypass-permission: false
   non-silk-reward-mode: ESSENCE
 
+  # Creative breaks intentionally recover the WildStacker-authoritative spawner item
+  # and may also grant PlexonSpawners rewards. Existing schema-11 configs must opt in
+  # explicitly because config-version is unchanged for this runtime correction.
   creative:
-    recover-spawner: false
-    award-essence: false
+    recover-spawner: true
+    award-essence: true
     award-custom-item: false
 
   # Empty means all worlds. Non-empty values form an allowlist.
@@ -52,6 +55,8 @@ custom-drop:
 rewards:
   mob-overrides: {}
 
+# Legacy schema-11 compatibility keys only. PlexonSpawners does not register a
+# player right-click/withdrawal GUI in 4.0; WildStacker owns placed-spawner interaction.
 gui:
   enabled: true
   open-on-right-click: true
