@@ -87,8 +87,7 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
                 + enabled(plugin.settings().essenceEnabled()) + "</white>"));
             sender.sendMessage(messages.parse("<gray>Custom drop:</gray> <white>"
                 + enabled(plugin.settings().customDropEnabled()) + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Withdrawal GUI:</gray> <white>"
-                + enabled(plugin.settings().guiEnabled()) + "</white>"));
+            sender.sendMessage(messages.parse("<gray>Spawner interaction:</gray> <white>WildStacker</white>"));
             sender.sendMessage(messages.parse("<gray>World scope:</gray> <white>"
                 + (plugin.settings().enabledWorlds().isEmpty() ? "ALL" : plugin.settings().enabledWorlds().size() + " configured")
                 + "</white>"));
