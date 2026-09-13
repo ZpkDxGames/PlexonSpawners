@@ -12,7 +12,7 @@ depend:
 commands:
   pspawners:
     description: PlexonSpawners administration and integration status.
-    usage: /pspawners <admin|status|reload>
+    usage: /pspawners <admin|give|status|reload>
     aliases: [plexonspawners, pspawner]
 
 permissions:
@@ -21,10 +21,14 @@ permissions:
     default: op
     children:
       plexonspawners.admin.gui: true
+      plexonspawners.admin.give: true
       plexonspawners.admin.reload: true
       plexonspawners.admin.status: true
   plexonspawners.admin.gui:
     description: Open and use the PlexonSpawners policy administration GUI.
+    default: op
+  plexonspawners.admin.give:
+    description: Give WildStacker-authoritative spawner items to online players.
     default: op
   plexonspawners.admin.reload:
     description: Reload PlexonSpawners policy configuration.
