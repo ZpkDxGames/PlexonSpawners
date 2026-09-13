@@ -94,8 +94,6 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "com/plexon/spawners/config/PluginSettings.class",
                 "com/plexon/spawners/essence/EssenceRewardPolicy.class",
                 "com/plexon/spawners/essence/EssenceService.class",
-                "com/plexon/spawners/gui/SpawnerWithdrawGui.class",
-                "com/plexon/spawners/gui/WithdrawalPolicy.class",
                 "com/plexon/spawners/gui/admin/AdminConfigPersistence.class",
                 "com/plexon/spawners/gui/admin/AdminGuiHolder.class",
                 "com/plexon/spawners/gui/admin/AdminGuiService.class",
@@ -131,9 +129,12 @@ val verifyDistribution = tasks.register("verifyDistribution") {
                 "SpawnerTier.class",
                 "SpawnerTuning.class",
                 "SpawnerPlaceListener.class",
-                "SpawnerChunkListener.class"
+                "SpawnerChunkListener.class",
+                "SpawnerWithdrawGui.class",
+                "SpawnerWithdrawGuiHolder.class",
+                "WithdrawalPolicy.class"
             ).forEach { banned ->
-                require(names.none { it.endsWith(banned) }) { "Banned legacy class present: $banned" }
+                require(names.none { it.endsWith(banned) }) { "Banned legacy/player-interaction class present: $banned" }
             }
             require(names.none { it.startsWith("com/bgsoftware/wildstacker/") }) {
                 "WildStacker runtime classes must not be shaded into PlexonSpawners"

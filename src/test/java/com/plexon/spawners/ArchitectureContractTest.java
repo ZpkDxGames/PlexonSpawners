@@ -53,6 +53,40 @@ final class ArchitectureContractTest {
     }
 
     @Test
+    void placedSpawnerInteractionIsLeftToWildStacker() throws IOException {
+        final String pluginSource = Files.readString(Path.of("src/main/java/com/plexon/spawners/PlexonSpawners.java"));
+        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
+        final Path sourceRoot = Path.of("src/main/java/com/plexon/spawners");
+
+        assertFalse(pluginSource.contains("SpawnerWithdrawGui"));
+        assertFalse(pluginSource.contains("registerEvents(withdrawGui"));
+        assertFalse(pluginYml.contains("plexonspawners.gui:"));
+        assertFalse(Files.exists(sourceRoot.resolve("gui/SpawnerWithdrawGui.java")));
+        assertFalse(Files.exists(sourceRoot.resolve("gui/SpawnerWithdrawGuiHolder.java")));
+        assertFalse(Files.exists(sourceRoot.resolve("gui/WithdrawalPolicy.java")));
+
+        try (var stream = Files.walk(sourceRoot)) {
+            for (final Path path : stream.filter(Files::isRegularFile).toList()) {
+                final String source = Files.readString(path);
+                assertFalse(source.contains("PlayerInteractEvent"),
+                    "PlexonSpawners must not own normal placed-spawner interaction: " + path);
+                assertFalse(source.contains("RIGHT_CLICK_BLOCK"),
+                    "PlexonSpawners must not capture normal right-click block interaction: " + path);
+            }
+        }
+    }
+
+    @Test
+    void administratorGuiRemainsAvailable() throws IOException {
+        final String command = Files.readString(Path.of("src/main/java/com/plexon/spawners/command/SpawnersCommand.java"));
+        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
+        assertTrue(Files.exists(Path.of("src/main/java/com/plexon/spawners/gui/admin/AdminGuiService.java")));
+        assertTrue(command.contains("adminGui.open(player)"));
+        assertTrue(pluginYml.contains("plexonspawners.admin.gui:"));
+        assertTrue(pluginYml.contains("/pspawners <admin|give|status|reload>"));
+    }
+
+    @Test
     void adminConfigDoesNotExposeWildStackerOwnedStackControls() throws IOException {
         final String config = Files.readString(Path.of("src/main/resources/config.yml"));
         assertFalse(config.contains("merge-radius:"));

@@ -39,6 +39,3 @@ permissions:
   plexonspawners.bypass.silk:
     description: Bypass the configured Silk Touch level when the bypass setting is enabled.
     default: op
-  plexonspawners.gui:
-    description: Open and use the WildStacker spawner withdrawal GUI.
-    default: true

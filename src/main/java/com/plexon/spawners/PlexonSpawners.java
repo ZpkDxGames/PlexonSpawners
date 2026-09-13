@@ -5,7 +5,6 @@ import com.plexon.spawners.config.ConfigBootstrap;
 import com.plexon.spawners.config.ConfigRevisionService;
 import com.plexon.spawners.config.PluginSettings;
 import com.plexon.spawners.essence.EssenceService;
-import com.plexon.spawners.gui.SpawnerWithdrawGui;
 import com.plexon.spawners.gui.admin.AdminGuiService;
 import com.plexon.spawners.integration.WildStackerBridge;
 import com.plexon.spawners.listener.SpawnerBreakListener;
@@ -22,7 +21,6 @@ public final class PlexonSpawners extends JavaPlugin {
     private EssenceService essenceService;
     private CustomDropService customDropService;
     private WildStackerBridge wildStacker;
-    private SpawnerWithdrawGui withdrawGui;
     private AdminGuiService adminGui;
 
     @Override
@@ -33,12 +31,10 @@ public final class PlexonSpawners extends JavaPlugin {
         essenceService = new EssenceService(this, settings);
         customDropService = new CustomDropService(this, settings);
         wildStacker = new WildStackerBridge(this);
-        withdrawGui = new SpawnerWithdrawGui(this, settings, messages, wildStacker);
         adminGui = new AdminGuiService(this, settings, messages, essenceService, customDropService, revisions);
 
         getServer().getPluginManager().registerEvents(
             new SpawnerBreakListener(this, settings, essenceService, customDropService, messages, wildStacker), this);
-        getServer().getPluginManager().registerEvents(withdrawGui, this);
         getServer().getPluginManager().registerEvents(adminGui, this);
 
         final SpawnersCommand command = new SpawnersCommand(this, messages, adminGui);
@@ -51,7 +47,7 @@ public final class PlexonSpawners extends JavaPlugin {
 
         getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
             + " enabled. WildStacker " + wildStacker.version()
-            + " is authoritative for spawner, entity and item stacking.");
+            + " is authoritative for spawner, entity and item stacking and placed-spawner interaction.");
     }
 
     public void reloadRuntime() {
