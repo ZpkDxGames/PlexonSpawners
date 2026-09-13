@@ -20,25 +20,32 @@ final class ArchitectureContractTest {
     }
 
     @Test
-    void directApiBridgeHasNoReflectionOrFallbackEngine() throws IOException {
+    void directApiBridgeAcceptsTransientSingularObjectsAndHasNoReflectionOrFallbackEngine() throws IOException {
         final String bridge = Files.readString(Path.of("src/main/java/com/plexon/spawners/integration/WildStackerBridge.java"));
         assertTrue(bridge.contains("WildStackerAPI.getStackedSpawner"));
         assertTrue(bridge.contains("getDropItem(amount)"));
+        assertTrue(bridge.contains("authoritative.clone()"));
         assertTrue(bridge.contains("runUnstack(amount, player)"));
+        assertFalse(bridge.contains("stacked.isCached()"));
         assertFalse(bridge.contains("Class.forName"));
         assertFalse(bridge.contains("java.lang.reflect"));
     }
 
     @Test
-    void breakListenerUsesWildStackerLogicalAmountAndPublicEvents() throws IOException {
+    void breakListenerCapturesPhysicalIntentAndKeepsWildStackerEventsAuthoritative() throws IOException {
         final String listener = Files.readString(Path.of("src/main/java/com/plexon/spawners/listener/SpawnerBreakListener.java"));
+        assertTrue(listener.contains("BlockBreakEvent"));
+        assertTrue(listener.contains("EventPriority.LOWEST"));
         assertTrue(listener.contains("SpawnerUnstackEvent"));
         assertTrue(listener.contains("SpawnerDropEvent"));
         assertTrue(listener.contains("event.getAmount()"));
+        assertTrue(listener.contains("snapshotRecovery(stacked, 1)"));
+        assertTrue(listener.contains("BreakReconciliation.confirmedRemovedAmount"));
+        assertTrue(listener.contains("BreakCompletionGate"));
         assertTrue(listener.contains("wildStacker.resolve(context.location())"));
-        assertTrue(listener.contains("currentSpawner == null ? 0"));
         assertFalse(listener.contains("PersistentDataContainer"));
         assertFalse(listener.contains("getNearbyEntities"));
+        assertFalse(listener.contains("new ItemStack(Material.SPAWNER)"));
     }
 
     @Test

@@ -25,14 +25,40 @@ The PlexonSpawners administrator GUI remains available through `/pspawners admin
 - Existing WildStacker-authoritative Silk recovery is retained.
 - Schema 10 upgrades through the targeted schema 11 migration; the final GUI handoff does not create another schema version.
 
+## Final singular break-parity remediation
+
+Live runtime testing invalidated the previous broad 4.0 acceptance because the last physical `1x` spawner could disappear without the configured Plexon recovery/reward result.
+
+The final 4.0 source remediation:
+
+- accepts WildStacker's valid transient/non-cached singular `StackedSpawner` representation instead of using `isCached()` as a validity gate;
+- captures physical `BlockBreakEvent` intent before WildStacker's `HIGHEST` mutation path without cancelling or replacing WildStacker's break handling;
+- snapshots spawned type and WildStacker's authoritative recovery item before the destructive `1 -> 0` transition;
+- keeps `SpawnerUnstackEvent#getAmount()` authoritative whenever emitted;
+- keeps `SpawnerDropEvent` as the preferred native-drop interception/finalization signal;
+- adds next-tick state reconciliation for the singular event-gap/final-unit path;
+- uses one exactly-once terminal gate so native events and fallback cannot duplicate recovery, Essence or custom rewards;
+- treats unchanged/protected breaks as denied with zero payout;
+- preserves WildStacker's right-click manage/tier GUI and namespaced `/pspawners give` delegation.
+
+No new configuration or migration is introduced. Schema remains `11` and migration status remains `NOT_REQUIRED`.
+
+See `docs/RUNTIME_SINGULAR_BREAK_PARITY.md` for the source-level defect boundary and runtime gate.
+
 ## Required final deployment gate
 
-The broader 4.0 runtime candidate was already tested successfully on PlexonCraft. Do not publish stable until the exact final CI-built JAR passes the focused handoff smoke:
+Do not publish stable until the exact final CI-built JAR passes all of the following on PlexonCraft:
 
-- right-click a WildStacker-managed spawner: no Plexon withdrawal GUI opens and WildStacker's expected tier/upgrade interaction works;
-- `/pspawners admin` still opens and functions;
-- `/pspawners give <online-player> zombie 2` (or equivalent) still delivers WildStacker-compatible spawners;
-- one representative break/reward regression still works with WildStacker logical quantity authoritative.
+- singular `1x` Silk recovery;
+- singular `1x` non-Silk Essence;
+- singular custom/BOTH reward;
+- current creative recovery/reward policy;
+- `2x -> 1x` regression;
+- final `1x -> 0` regression;
+- upgraded singular type/tier preservation;
+- protected/cancelled break with zero payout;
+- WildStacker native right-click manage/tier GUI;
+- `/pspawners give <online-player> zombie 2` (or equivalent).
 
 Migration status for this final campaign is:
 
@@ -40,7 +66,7 @@ Migration status for this final campaign is:
 NOT_REQUIRED
 ```
 
-Do not infer the focused runtime PASS from unit tests or GitHub Actions.
+Do not infer live runtime PASS from unit tests or GitHub Actions.
 
 ## Stable evidence
 
@@ -48,7 +74,7 @@ Before publishing `v4.0.0`, record:
 
 - exact final feature/candidate SHA;
 - canonical test totals and GitHub Actions run/artifact IDs;
-- focused runtime smoke result;
+- full singular + stacked live runtime matrix;
 - final `main` SHA;
 - final `release/stable` SHA;
 - `v4.0.0` tag target;
@@ -58,9 +84,9 @@ Before publishing `v4.0.0`, record:
 ## Current release state
 
 ```text
-BROAD 4.0 RUNTIME CANDIDATE PASSED
-FINAL CLICK-HANDOFF SMOKE PENDING
+SOURCE REMEDIATION IN PROGRESS
+SINGULAR RUNTIME FAILURE INVALIDATED PRIOR BROAD ACCEPTANCE
+EXACT REMEDIATED CANDIDATE LIVE MATRIX REQUIRED
 MIGRATION NOT_REQUIRED
-PR NOT YET MERGED
 V4.0.0 NOT YET PUBLISHED
 ```

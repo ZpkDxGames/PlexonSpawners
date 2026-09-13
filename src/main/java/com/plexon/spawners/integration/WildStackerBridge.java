@@ -34,13 +34,17 @@ public final class WildStackerBridge {
         if (location == null || location.getWorld() == null) return null;
         if (location.getBlock().getType() != Material.SPAWNER) return null;
         if (!(location.getBlock().getState() instanceof CreatureSpawner spawner)) return null;
-        final StackedSpawner stacked = WildStackerAPI.getStackedSpawner(spawner);
-        return stacked != null && stacked.isCached() ? stacked : null;
+
+        // WildStacker intentionally exposes a valid transient StackedSpawner for a physical 1x
+        // spawner even when that object is not cached. Cache membership is therefore not a
+        // validity check and must never be used to discard a singular physical spawner.
+        return WildStackerAPI.getStackedSpawner(spawner);
     }
 
     public ItemStack createSpawnerItem(final StackedSpawner stackedSpawner, final int amount) {
         if (stackedSpawner == null || amount < 1) return null;
-        return stackedSpawner.getDropItem(amount);
+        final ItemStack authoritative = stackedSpawner.getDropItem(amount);
+        return authoritative == null ? null : authoritative.clone();
     }
 
     public UnstackResult withdraw(final StackedSpawner stackedSpawner, final int amount, final Player player) {
