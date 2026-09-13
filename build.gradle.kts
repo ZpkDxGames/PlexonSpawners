@@ -8,7 +8,6 @@ group = "com.plexon"
 version = "4.0.0"
 
 val pluginVersion = version.toString()
-val wildStackerApiVersion = "2026.2"
 
 repositories {
     mavenCentral()
@@ -30,12 +29,12 @@ java {
 
 dependencies {
     compileOnly("io.papermc.paper:paper-api:26.2.build.121-stable")
-    compileOnly("com.bgsoftware:WildStackerAPI:$wildStackerApiVersion")
+    compileOnly("com.bgsoftware:WildStackerAPI:2026.2")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("io.papermc.paper:paper-api:26.2.build.121-stable")
-    testImplementation("com.bgsoftware:WildStackerAPI:$wildStackerApiVersion")
+    testImplementation("com.bgsoftware:WildStackerAPI:2026.2")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
