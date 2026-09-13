@@ -1,18 +1,20 @@
 # PlexonSpawners 4.0 — WildStacker-authoritative policy layer
 # WildStacker owns all stacking, stack persistence, placement, merge behavior,
-# stack limits, entity stacking, item stacking, and spawner item representation.
-config-version: 10
+# stack limits, entity stacking, item stacking, spawner item representation and runtime stack state.
+config-version: 11
 
 breaking:
   enabled: true
   required-silk-touch-level: 1
   allow-silk-bypass-permission: false
+  non-silk-reward-mode: ESSENCE
 
   creative:
     recover-spawner: false
     award-essence: false
+    award-custom-item: false
 
-  # Empty means all worlds.
+  # Empty means all worlds. Non-empty values form an allowlist.
   enabled-worlds: []
 
 essence:
@@ -20,12 +22,32 @@ essence:
   default-amount: 1
   default-chance: 35.0
   delivery: INVENTORY
+  item:
+    material: AMETHYST_SHARD
+    name: '<gradient:#56B9F2:#92E1FF><b>Spawner Essence</b></gradient>'
+    lore:
+      - '<gray>A concentrated fragment of spawner energy.</gray>'
+    glow: true
+  mob-overrides: {}
 
-  # Example:
-  # mob-overrides:
-  #   BLAZE:
-  #     amount: 2
-  #     chance: 25.0
+custom-drop:
+  enabled: false
+  default-amount: 1
+  default-chance: 15.0
+  delivery: INVENTORY
+  item:
+    material: PRISMARINE_CRYSTALS
+    name: '<gradient:#7BE7FF:#4AA8FF><b>Spawner Fragment</b></gradient>'
+    lore:
+      - '<gray>Dropped when a spawner is broken without Silk Touch.</gray>'
+      - '<dark_gray>Configurable PlexonSpawners reward.</dark_gray>'
+    glow: true
+    custom-model-data: null
+  mob-overrides: {}
+
+# Optional per-mob reward-mode overrides. Essence/custom amount and chance overrides
+# remain in their respective sections to preserve the 4.0 configuration lineage.
+rewards:
   mob-overrides: {}
 
 gui:
@@ -39,8 +61,14 @@ gui:
     - 32
     - 64
 
+admin-gui:
+  enabled: true
+  title: '<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Admin</b></gradient>'
+  config-backups-to-keep: 10
+
 messages:
   silk-recovered: true
   essence-awarded: true
+  custom-drop-awarded: true
   withdraw-success: true
   withdraw-failed: true

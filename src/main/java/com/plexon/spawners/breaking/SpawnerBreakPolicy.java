@@ -1,33 +1,42 @@
 package com.plexon.spawners.breaking;
 
 public final class SpawnerBreakPolicy {
-    public enum Outcome {
-        RECOVER,
-        ESSENCE,
-        NONE
+    public record Decision(boolean recoverSpawner, boolean awardEssence, boolean awardCustomItem) {
+        public boolean suppressNativeDrop() {
+            return !recoverSpawner;
+        }
     }
 
     private SpawnerBreakPolicy() {}
 
-    public static Outcome decide(
+    public static Decision decide(
         final boolean creative,
         final boolean creativeRecover,
         final boolean creativeEssence,
+        final boolean creativeCustomItem,
         final int silkLevel,
         final int requiredSilkLevel,
         final boolean bypassEnabled,
         final boolean hasBypassPermission,
-        final boolean essenceEnabled
+        final NonSilkRewardMode nonSilkMode,
+        final boolean essenceEnabled,
+        final boolean customItemEnabled
     ) {
         if (creative) {
-            if (creativeRecover) return Outcome.RECOVER;
-            if (creativeEssence && essenceEnabled) return Outcome.ESSENCE;
-            return Outcome.NONE;
+            return new Decision(
+                creativeRecover,
+                creativeEssence && essenceEnabled,
+                creativeCustomItem && customItemEnabled);
         }
 
         final boolean silkQualified = silkLevel >= Math.max(0, requiredSilkLevel)
             || (bypassEnabled && hasBypassPermission);
-        if (silkQualified) return Outcome.RECOVER;
-        return essenceEnabled ? Outcome.ESSENCE : Outcome.NONE;
+        if (silkQualified) return new Decision(true, false, false);
+
+        final NonSilkRewardMode mode = nonSilkMode == null ? NonSilkRewardMode.NONE : nonSilkMode;
+        return new Decision(
+            false,
+            essenceEnabled && mode.awardsEssence(),
+            customItemEnabled && mode.awardsCustomItem());
     }
 }

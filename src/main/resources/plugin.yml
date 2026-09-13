@@ -3,7 +3,7 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: PlexonCraft Silk Touch/Essence spawner recovery and WildStacker withdrawal GUI integration.
+description: WildStacker-authoritative spawner recovery, rewards and administration for PlexonCraft.
 prefix: PlexonSpawners
 
 depend:
@@ -11,8 +11,8 @@ depend:
 
 commands:
   pspawners:
-    description: PlexonSpawners integration administration.
-    usage: /pspawners <status|reload>
+    description: PlexonSpawners administration and integration status.
+    usage: /pspawners <admin|status|reload>
     aliases: [plexonspawners, pspawner]
     permission: plexonspawners.admin
 
@@ -21,17 +21,21 @@ permissions:
     description: Base PlexonSpawners administration permission.
     default: op
     children:
+      plexonspawners.admin.gui: true
       plexonspawners.admin.reload: true
       plexonspawners.admin.status: true
+  plexonspawners.admin.gui:
+    description: Open and use the PlexonSpawners policy administration GUI.
+    default: op
   plexonspawners.admin.reload:
-    description: Reload PlexonSpawners 4.0 policy configuration.
+    description: Reload PlexonSpawners policy configuration.
     default: op
   plexonspawners.admin.status:
     description: View PlexonSpawners and WildStacker integration status.
     default: op
   plexonspawners.bypass.silk:
     description: Bypass the configured Silk Touch level when the bypass setting is enabled.
-    default: false
+    default: op
   plexonspawners.gui:
     description: Open and use the WildStacker spawner withdrawal GUI.
     default: true

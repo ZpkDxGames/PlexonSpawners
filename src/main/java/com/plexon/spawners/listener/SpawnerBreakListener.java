@@ -5,10 +5,11 @@ import com.bgsoftware.wildstacker.api.events.SpawnerUnstackEvent;
 import com.bgsoftware.wildstacker.api.objects.StackedSpawner;
 import com.plexon.spawners.breaking.SpawnerBreakPolicy;
 import com.plexon.spawners.config.PluginSettings;
-import com.plexon.spawners.essence.EssenceRewardPolicy;
 import com.plexon.spawners.essence.EssenceService;
 import com.plexon.spawners.integration.WildStackerBridge;
 import com.plexon.spawners.message.MessageService;
+import com.plexon.spawners.reward.CustomDropService;
+import com.plexon.spawners.reward.RewardRollPolicy;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -29,6 +30,7 @@ public final class SpawnerBreakListener implements Listener {
     private final JavaPlugin plugin;
     private final PluginSettings settings;
     private final EssenceService essence;
+    private final CustomDropService customDrop;
     private final MessageService messages;
     private final WildStackerBridge wildStacker;
     private final Map<BlockKey, ConcurrentLinkedDeque<BreakContext>> pending = new ConcurrentHashMap<>();
@@ -37,12 +39,14 @@ public final class SpawnerBreakListener implements Listener {
         final JavaPlugin plugin,
         final PluginSettings settings,
         final EssenceService essence,
+        final CustomDropService customDrop,
         final MessageService messages,
         final WildStackerBridge wildStacker
     ) {
         this.plugin = plugin;
         this.settings = settings;
         this.essence = essence;
+        this.customDrop = customDrop;
         this.messages = messages;
         this.wildStacker = wildStacker;
     }
@@ -59,18 +63,21 @@ public final class SpawnerBreakListener implements Listener {
         if (amount < 1 || amount > before) return;
 
         final int silkLevel = player.getInventory().getItemInMainHand().getEnchantmentLevel(Enchantment.SILK_TOUCH);
-        final SpawnerBreakPolicy.Outcome outcome = SpawnerBreakPolicy.decide(
+        final SpawnerBreakPolicy.Decision decision = SpawnerBreakPolicy.decide(
             player.getGameMode() == GameMode.CREATIVE,
             settings.creativeRecoverSpawner(),
             settings.creativeAwardEssence(),
+            settings.creativeAwardCustomItem(),
             silkLevel,
             settings.requiredSilkTouchLevel(),
             settings.silkBypassPermissionEnabled(),
             player.hasPermission("plexonspawners.bypass.silk"),
-            settings.essenceEnabled());
+            settings.nonSilkRewardMode(event.getSpawner().getSpawnedType()),
+            settings.essenceEnabled(),
+            settings.customDropEnabled());
 
         final BreakContext context = new BreakContext(
-            BlockKey.of(event.getSpawner().getLocation()), event.getSpawner(), player, before, amount, outcome);
+            BlockKey.of(event.getSpawner().getLocation()), event.getSpawner(), player, before, amount, decision);
         pending.computeIfAbsent(context.key(), ignored -> new ConcurrentLinkedDeque<>()).addLast(context);
         plugin.getServer().getScheduler().runTask(plugin, () -> finalizeFallback(context));
     }
@@ -82,21 +89,16 @@ public final class SpawnerBreakListener implements Listener {
         final BreakContext context = takeMatching(BlockKey.of(event.getSpawner().getLocation()), player.getUniqueId());
         if (context == null || !context.completed().compareAndSet(false, true)) return;
 
-        switch (context.outcome()) {
-            case RECOVER -> {
-                final ItemStack authoritative = wildStacker.createSpawnerItem(event.getSpawner(), context.amount());
-                if (authoritative != null && !authoritative.getType().isAir()) event.setItemStack(authoritative);
-                if (settings.silkRecoveredMessage()) {
-                    messages.send(player, "spawner-recovered", Map.of("amount", Integer.toString(context.amount()),
-                        "mob", pretty(event.getSpawner().getSpawnedType().name())));
-                }
+        if (context.decision().recoverSpawner()) {
+            final ItemStack authoritative = wildStacker.createSpawnerItem(event.getSpawner(), context.amount());
+            if (authoritative != null && !authoritative.getType().isAir()) {
+                event.setItemStack(authoritative);
+                sendRecovered(context);
             }
-            case ESSENCE -> {
-                event.setItemStack(new ItemStack(Material.AIR));
-                awardEssence(context);
-            }
-            case NONE -> event.setItemStack(new ItemStack(Material.AIR));
+        } else {
+            event.setItemStack(new ItemStack(Material.AIR));
         }
+        awardConfiguredRewards(context);
     }
 
     private void finalizeFallback(final BreakContext context) {
@@ -107,30 +109,48 @@ public final class SpawnerBreakListener implements Listener {
         final int current = context.stackedSpawner().getStackAmount();
         if (current > expectedAfter) return;
 
-        switch (context.outcome()) {
-            case RECOVER -> {
-                final ItemStack authoritative = wildStacker.createSpawnerItem(context.stackedSpawner(), context.amount());
-                if (authoritative != null && !authoritative.getType().isAir()) {
-                    deliverSpawnerItem(context.player(), context.location(), authoritative);
-                    if (settings.silkRecoveredMessage()) {
-                        messages.send(context.player(), "spawner-recovered", Map.of(
-                            "amount", Integer.toString(context.amount()),
-                            "mob", pretty(context.stackedSpawner().getSpawnedType().name())));
-                    }
-                }
+        if (context.decision().recoverSpawner()) {
+            final ItemStack authoritative = wildStacker.createSpawnerItem(context.stackedSpawner(), context.amount());
+            if (authoritative != null && !authoritative.getType().isAir()) {
+                deliverSpawnerItem(context.player(), context.location(), authoritative);
+                sendRecovered(context);
             }
-            case ESSENCE -> awardEssence(context);
-            case NONE -> { }
         }
+        awardConfiguredRewards(context);
+    }
+
+    private void awardConfiguredRewards(final BreakContext context) {
+        if (context.decision().awardEssence()) awardEssence(context);
+        if (context.decision().awardCustomItem()) awardCustom(context);
     }
 
     private void awardEssence(final BreakContext context) {
-        final EssenceRewardPolicy.Award award = essence.evaluate(context.stackedSpawner().getSpawnedType(), context.amount());
+        final RewardRollPolicy.Award award = essence.evaluate(context.stackedSpawner().getSpawnedType(), context.amount());
         if (!award.awarded()) return;
         essence.deliver(context.player(), context.location(), award.totalAmount());
         if (settings.essenceAwardedMessage()) {
-            messages.send(context.player(), "essence-awarded", Map.of("amount", Integer.toString(award.totalAmount())));
+            messages.send(context.player(), "essence-awarded", Map.of(
+                "amount", Long.toString(award.totalAmount()),
+                "mob", pretty(context.stackedSpawner().getSpawnedType().name())));
         }
+    }
+
+    private void awardCustom(final BreakContext context) {
+        final RewardRollPolicy.Award award = customDrop.evaluate(context.stackedSpawner().getSpawnedType(), context.amount());
+        if (!award.awarded()) return;
+        customDrop.deliver(context.player(), context.location(), award.totalAmount());
+        if (settings.customDropAwardedMessage()) {
+            messages.send(context.player(), "custom-drop-awarded", Map.of(
+                "amount", Long.toString(award.totalAmount()),
+                "mob", pretty(context.stackedSpawner().getSpawnedType().name())));
+        }
+    }
+
+    private void sendRecovered(final BreakContext context) {
+        if (!settings.silkRecoveredMessage()) return;
+        messages.send(context.player(), "spawner-recovered", Map.of(
+            "amount", Integer.toString(context.amount()),
+            "mob", pretty(context.stackedSpawner().getSpawnedType().name())));
     }
 
     private void deliverSpawnerItem(final Player player, final Location location, final ItemStack item) {
@@ -168,7 +188,7 @@ public final class SpawnerBreakListener implements Listener {
         Player player,
         int beforeAmount,
         int amount,
-        SpawnerBreakPolicy.Outcome outcome,
+        SpawnerBreakPolicy.Decision decision,
         AtomicBoolean completed
     ) {
         private BreakContext(
@@ -177,9 +197,9 @@ public final class SpawnerBreakListener implements Listener {
             final Player player,
             final int beforeAmount,
             final int amount,
-            final SpawnerBreakPolicy.Outcome outcome
+            final SpawnerBreakPolicy.Decision decision
         ) {
-            this(key, stackedSpawner, player, beforeAmount, amount, outcome, new AtomicBoolean(false));
+            this(key, stackedSpawner, player, beforeAmount, amount, decision, new AtomicBoolean(false));
         }
 
         private Location location() {
