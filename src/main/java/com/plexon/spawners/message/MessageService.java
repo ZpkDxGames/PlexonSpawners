@@ -88,6 +88,6 @@ public final class MessageService {
     }
 
     private static String escape(final String input) {
-        return input == null ? "" : input.replace("<", "\<").replace(">", "\>");
+        return input == null ? "" : input.replace("<", "\\\\<").replace(">", "\\\\>");
     }
 }
