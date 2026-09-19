@@ -22,12 +22,12 @@ final class ApiAndCoreContractTest {
     void coreBridgeAdvertisesOnlyPolicyIntegrationCapabilities() throws IOException {
         final String core = Files.readString(Path.of(
             "src/main/java/com/plexon/spawners/integration/core/PlexonCoreBridge.java"));
-        assertTrue(core.contains(""wildstacker-authoritative""));
-        assertTrue(core.contains(""spawner-break-policy""));
-        assertTrue(core.contains(""spawner-reward-policy""));
-        assertTrue(core.contains(""exact-reward-items""));
-        assertFalse(core.contains(""spawner-engine""));
-        assertFalse(core.contains(""managed-spawner-items""));
+        assertTrue(core.contains("\"wildstacker-authoritative\""));
+        assertTrue(core.contains("\"spawner-break-policy\""));
+        assertTrue(core.contains("\"spawner-reward-policy\""));
+        assertTrue(core.contains("\"exact-reward-items\""));
+        assertFalse(core.contains("\"spawner-engine\""));
+        assertFalse(core.contains("\"managed-spawner-items\""));
         assertTrue(core.contains("supplyIo(plugin"));
         assertTrue(core.contains("schedulePrimary(plugin"));
         assertTrue(core.contains("unregisterOwnedBy(plugin)"));
