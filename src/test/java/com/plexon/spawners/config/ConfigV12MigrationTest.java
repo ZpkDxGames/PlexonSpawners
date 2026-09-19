@@ -13,20 +13,20 @@ final class ConfigV12MigrationTest {
     void migrationRetiresDeadWithdrawalKeysAndEncodesExactItems() throws IOException {
         final String source = Files.readString(Path.of(
             "src/main/java/com/plexon/spawners/config/ConfigV12Migration.java"));
-        assertTrue(source.contains("config.set("gui", null)"));
-        assertTrue(source.contains("config.set("messages.withdraw-success", null)"));
-        assertTrue(source.contains("config.set("messages.withdraw-failed", null)"));
-        assertTrue(source.contains("items.write(config, "essence.item""));
-        assertTrue(source.contains("items.write(config, "custom-drop.item""));
-        assertTrue(source.contains("config.set("config-version", ConfigBootstrap.CONFIG_VERSION)"));
+        assertTrue(source.contains("config.set(\"gui\", null)"));
+        assertTrue(source.contains("config.set(\"messages.withdraw-success\", null)"));
+        assertTrue(source.contains("config.set(\"messages.withdraw-failed\", null)"));
+        assertTrue(source.contains("items.write(config, \"essence.item\""));
+        assertTrue(source.contains("items.write(config, \"custom-drop.item\""));
+        assertTrue(source.contains("config.set(\"config-version\", ConfigBootstrap.CONFIG_VERSION)"));
     }
 
     @Test
     void legacyEmptyAllowlistPreservesAllWorldSemanticsExplicitly() throws IOException {
         final String source = Files.readString(Path.of(
             "src/main/java/com/plexon/spawners/config/ConfigV12Migration.java"));
-        assertTrue(source.contains("legacyWorlds.isEmpty() ? "ALL" : "ALLOWLIST""));
-        assertTrue(source.contains("config.set("scope.worlds", legacyWorlds)"));
+        assertTrue(source.contains("legacyWorlds.isEmpty() ? \"ALL\" : \"ALLOWLIST\""));
+        assertTrue(source.contains("config.set(\"scope.worlds\", legacyWorlds)"));
     }
 
     @Test
