@@ -1,83 +1,133 @@
 # PlexonSpawners 4.0
 
-PlexonSpawners is the PlexonCraft policy and administration layer around **WildStacker**.
+PlexonSpawners is the PlexonCraft recovery/reward policy and administration layer around **WildStacker**.
 
 ## Ownership model
 
-WildStacker is a required dependency and the single authority for placed spawner quantities, stacking/merging, persistence, placement, spawner item representation, unstack operations, entity stacking, item stacking, limits, upgrades/tiers and normal placed-spawner interaction.
+WildStacker is a required dependency and the sole authority for placed spawner quantities,
+stacking/merging, persistence, placement, spawner-item representation, unstacking, limits,
+upgrades/tiers, normal placed-spawner interaction, entity stacking and item stacking.
 
-PlexonSpawners owns only Plexon-specific policy and administration:
+PlexonSpawners owns only Plexon-specific policy and integration:
 
-- qualifying Silk Touch recovery using WildStacker's authoritative spawner item;
-- configurable non-Silk rewards: `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, or `NONE`;
-- independent per-logical-spawner reward rolls and per-mob overrides;
-- a draft-based administrator policy GUI with validation, backups and stale-session protection;
-- administrative WildStacker-compatible spawner giving through `/pspawners give`.
+- qualifying Silk recovery using WildStacker's authoritative spawner item;
+- non-Silk reward modes: ESSENCE, CUSTOM_ITEM, ESSENCE_AND_CUSTOM_ITEM, NONE;
+- independent per-logical-unit reward rolls and per-mob overrides;
+- exact custom reward ItemStack templates;
+- an isolated-draft administrator GUI;
+- explicit Survival world scope;
+- /pspawners give delegation to WildStacker;
+- read-only policy API and post-commit events;
+- optional thin PlexonCore 2.1 lifecycle/health/scheduling integration.
 
-PlexonSpawners 4.0.0 does **not** open a player-facing GUI when a placed spawner is right-clicked. That interaction is deliberately left untouched so WildStacker's native spawner tier/upgrade interface can receive it normally.
+PlexonSpawners does not open a player-facing placed-spawner GUI. WildStacker's native interaction,
+tier and upgrade GUI remains authoritative.
 
-There is no Plexon-native stack registry, stack database, placement/merge engine, entity aggregation backend, fallback stack implementation, tier/upgrades system, ownership model, redstone stack lock, or parallel stack persistence loop in 4.0.
+There is no Plexon native stack registry, managed stack database runtime, placement/merge engine,
+entity aggregation backend, fallback stack implementation, tier/upgrade engine, redstone stack lock,
+stack display service, withdrawal GUI or parallel stack persistence loop in 4.0.
 
 ## Requirements
 
-- Paper 26.2
+- Paper 26.2.build.121-stable
 - Java 25
-- WildStacker public API `2026.2`
+- WildStacker API 2026.2, hard runtime dependency
+- PlexonCore 2.1.0 optional
 
-WildStacker is declared under `depend`, not `softdepend`; PlexonSpawners does not start without it.
+The Core compile/test artifact is pinned to SHA-256:
+
+7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c
+
+Core is never stack authority.
 
 ## Commands
 
-```text
 /pspawners admin
-/pspawners give <player> <mobtype> <amount>
+/pspawners give <player> <minecraft:mobtype> <amount>
 /pspawners status
 /pspawners reload
-```
 
-`/pspawners admin` requires a player. Status and reload support console use. `/pspawners give` delegates authoritative spawner-item creation to WildStacker.
+/pspawners admin requires a player. Status/reload support console use. Give delegates item creation
+to WildStacker.
 
 ## Permissions
 
-```text
-plexonspawners.admin
-plexonspawners.admin.gui
-plexonspawners.admin.give
-plexonspawners.admin.status
-plexonspawners.admin.reload
-plexonspawners.bypass.silk
-```
+- plexonspawners.admin
+- plexonspawners.admin.gui
+- plexonspawners.admin.give
+- plexonspawners.admin.status
+- plexonspawners.admin.reload
+- plexonspawners.bypass.silk
+
+The Silk bypass permission defaults to false and only applies when
+breaking.allow-silk-bypass-permission is also enabled.
+
+## Schema 12
+
+config-version: 12 is the final 4.0 schema.
+
+Dead withdrawal keys/messages are retired. Fresh installs use an explicit Survival allowlist.
+Schema-11 empty legacy allowlists migrate to explicit scope.mode: ALL to preserve old behavior rather
+than silently narrowing it; production certification must explicitly verify the intended Survival
+world names/UUIDs.
+
+Exact captured reward items use Paper byte serialization encoded as Base64. Human-readable fields
+are summaries/fallback migration input once exact-data exists.
+
+Future schemas fail closed.
 
 ## Administrator GUI
 
-The admin interface edits an isolated draft. Clicking controls does not mutate live settings or write `config.yml`. Save validates the full draft, rejects stale revisions, creates a timestamped backup, writes through a same-directory temporary file with atomic replacement where supported, reloads runtime policy, then advances the in-memory configuration revision.
+GUI edits are isolated drafts bound to runtime generation + config revision. Clicks never perform disk
+I/O. Save validates and captures an immutable draft on the primary thread, performs backup/write/
+atomic replacement on bounded I/O, then commits a prepared runtime generation on the primary thread.
+Revision advances only after commit succeeds. Stale/competing sessions fail closed.
 
-The supported administrator surface is for PlexonSpawners-owned break/reward policy. It is separate from player spawner interaction; WildStacker owns normal placed-spawner interaction and its tier/upgrade GUI. See [`docs/ADMIN_GUI.md`](docs/ADMIN_GUI.md).
+See docs/ADMIN_GUI.md.
 
 ## Reward semantics
 
-WildStacker's `SpawnerUnstackEvent#getAmount()` is the exact logical quantity used for reward rolls. A removal of eight logical spawners produces eight Essence rolls and, in combined mode, eight independent custom-item rolls. Successful rolls are aggregated before delivery.
+WildStacker's exact logical removal amount drives one reward roll per logical unit. Combined mode
+performs independent Essence and custom-item rolls. Successful rewards aggregate before delivery.
 
-Silk recovery remains separate. A qualifying Silk break receives WildStacker's `StackedSpawner#getDropItem(amount)` representation and does not become a custom non-Silk item.
+Silk recovery remains separate and uses WildStacker's authoritative getDropItem(amount) representation.
 
-## Important WildStacker break-policy requirement
+## Public API/events
 
-PlexonSpawners observes WildStacker's public `SpawnerUnstackEvent` and `SpawnerDropEvent`. Production WildStacker settings must allow non-Silk player breaks to reach that unstack pipeline. PlexonSpawners deliberately does not edit WildStacker configuration or reconstruct rejected breaks.
+PlexonSpawnersApi is registered through Bukkit ServicesManager and exposes policy/integration reads
+only. It has no placement, merge, unstack or stack-amount mutation methods.
 
-## Configuration migration
+Post-commit events report finalized break, recovery and reward outcomes.
 
-Schema 11 remains the 4.0 schema. Existing schema 10 configurations use the targeted 10→11 migration; there is no extra schema bump for removal of the player withdrawal GUI. Existing v11 `gui:` or withdrawal-message keys are harmless legacy keys and have no player spawner-click entrypoint in 4.0.0.
+## Migration gate
 
-For legacy 3.x migration and stack ownership cutover, read [`docs/MIGRATION_4_0.md`](docs/MIGRATION_4_0.md).
+Production 3.4 -> 4.0 migration status is PENDING until the old managed state is inventoried.
+
+Use:
+
+python3 tools/legacy_managed_inventory.py plugins/PlexonSpawners/managed-spawners.db \
+  --csv legacy-spawners.csv --json legacy-spawners.json
+
+If old_logical_total is nonzero, stable publication remains blocked until a one-shot WildStacker
+conversion proves old_logical_total == new_logical_total with per-location/checkpoint evidence.
+
+If no legacy quantity requires conversion, NOT_REQUIRED still needs live evidence. It is never inferred
+from source code or CI.
+
+See docs/MIGRATION_4_0.md.
 
 ## Build
 
-```bash
 gradle clean test check jar --no-daemon
-```
 
-Distribution verification rejects restored legacy stack packages/classes, the retired Plexon withdrawal GUI classes and shaded WildStacker runtime classes.
+The Build workflow verifies Java class major 69, schema 12, exact Core pin, WildStacker hard dependency,
+banned legacy architecture absence, non-shading and source/test/distribution evidence.
 
 ## Stable release gate
 
-The broader 4.0 runtime candidate was already accepted on PlexonCraft. Before `v4.0.0` is published, the exact final CI-built JAR still requires the focused click-handoff smoke: normal spawner interaction must reach WildStacker, `/pspawners admin` and `/pspawners give` must remain functional, and one representative break/reward test must pass. Migration status for this final campaign is `NOT_REQUIRED`.
+v4.0.0 remains blocked until the exact final candidate passes the complete runtime template in
+.release/RUNTIME_CERTIFICATION_4.0.0.template, including singular/stacked breaks, exact reward
+round-trip, Survival scope, migration evidence and at least 30 minutes of Spark/runtime soak.
+
+The stable workflow requires certified source SHA == main == release/stable and deterministic rebuilt
+JAR SHA-256 == the exact live-tested candidate SHA-256.

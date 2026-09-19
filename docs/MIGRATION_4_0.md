@@ -1,113 +1,166 @@
-# PlexonSpawners 3.x → 4.0 Migration
+# PlexonSpawners 3.x -> 4.0 Migration
 
 ## Purpose
 
-4.0 transfers all generic stacking ownership to WildStacker. The old Plexon managed-stack runtime is deleted from the final JAR. The administrator GUI and reward additions do not change that boundary.
+4.0 transfers all stack/item/upgrade/interaction authority to WildStacker. The old Plexon managed
+stack engine is absent from the final runtime JAR.
+
+Migration evidence is separate from source/CI evidence. Stable publication accepts only:
+
+migration=PASS
+
+or
+
+migration=NOT_REQUIRED
+
+with real production evidence.
 
 ## Before cutover
 
-Stop before replacing the production plugin and create rollback copies of:
+Stop the server and preserve matching rollback copies of:
 
-1. the current PlexonSpawners JAR;
-2. the entire `plugins/PlexonSpawners/` directory, including legacy data;
-3. the production WildStacker configuration and relevant data;
-4. the world/server backup needed to restore placed spawner state.
+1. current PlexonSpawners 3.4 JAR;
+2. entire plugins/PlexonSpawners directory, including managed-spawners.db;
+3. WildStacker configuration/data;
+4. relevant world/server restore point.
 
-Record Java, Paper, WildStacker, old PlexonSpawners version, TPS/MSPT baseline and candidate hashes.
+Record current Paper, Java, WildStacker, PlexonCore, source/JAR hashes and performance baseline.
 
-## Mandatory managed-stack inventory
+## Legacy managed-state inventory
 
-Inspect the 3.x persistence and loaded worlds before deleting old data. Record:
+The 3.4 managed-spawners.db format is a line-based schema:
 
-```text
-managed physical spawners = ...
-sum(old Plexon logical quantities) = ...
-```
+- schema 1: each record implies old logical amount 1;
+- schema 2: field 13 stores stackAmount.
 
-If both prove there is no legacy Plexon managed stack state, migration may be classified `MIGRATION NOT_REQUIRED` with evidence.
+The repository includes a read-only, fail-closed inventory exporter:
 
-If any managed logical stack exists, do not install the clean final 4.0 JAR until quantities are converted into WildStacker-authoritative stacks. A one-shot maintenance migration may be used, but the final 4.0 runtime must not contain the legacy stack engine.
+python3 tools/legacy_managed_inventory.py   plugins/PlexonSpawners/managed-spawners.db   --csv migration/legacy-spawners.csv   --json migration/legacy-spawners.json
 
-Required reconciliation:
+Record:
 
-```text
-sum(old Plexon logical quantities)
-==
-sum(new WildStacker logical quantities)
-```
+managed_physical_spawners=N
+old_logical_total=OLD_TOTAL
 
-Silent loss or duplication is a release blocker.
+The tool rejects unsupported headers, corrupt record shapes, duplicate record IDs, duplicate physical
+locations and non-positive logical amounts. It never writes plugin/server state.
+
+Also inspect the loaded worlds/PDC state needed to rule out legacy records not represented by the file.
+
+## NOT_REQUIRED path
+
+NOT_REQUIRED is valid only when evidence proves there is no legacy Plexon logical quantity requiring
+conversion.
+
+The stable release workflow requires:
+
+old_logical_total=0
+new_logical_total=0
+
+for NOT_REQUIRED.
+
+A missing assumption is not evidence.
+
+## PASS path
+
+If OLD_TOTAL > 0, do not install the final clean 4.0 runtime until a separate one-shot conversion
+mechanism has migrated the old quantities to WildStacker authority.
+
+The conversion artifact/tool must remain separate from the final runtime and must be:
+
+- dry-run capable;
+- idempotent;
+- resumable/checkpointed;
+- fail-closed;
+- restart-safe;
+- auditable per location.
+
+Per-location evidence must include:
+
+- world UUID;
+- x/y/z;
+- entity type;
+- old Plexon amount;
+- resulting WildStacker amount;
+- status;
+- checkpoint/transaction ID;
+- unresolved error, if any.
+
+Required invariant:
+
+old_logical_total == new_logical_total
+
+Then restart and prove the new WildStacker amounts persist.
+
+No silent loss or duplication is acceptable.
 
 ## Configuration migration
 
-Two config paths intentionally differ:
+### Pre-4.0 schemas below 10
 
-### Legacy pre-4.0 config (`config-version < 10`)
+PlexonSpawners creates config-pre-4.0-backup.yml, writes clean schema 12 and preserves only safe
+break/Essence settings. Legacy empty world allowlist semantics become explicit scope.mode=ALL.
 
-PlexonSpawners creates `config-pre-4.0-backup.yml`, writes the clean 4.0 schema and copies only retained break/Essence policy values where safe. Removed managed/tier/upgrade/cap/migration/display/spawn-scaling/redstone sections do not return.
+### Schema 10
 
-### Existing 4.0 config (`config-version: 10`)
+The supported path is 10 -> 11 -> 12. A backup is created before the conversion.
 
-Schema 10 is upgraded in place to schema 11 through a targeted migration. A `config-v10-before-v11.yml` backup is created. Existing breaking values, enabled worlds, Essence values and mob overrides, withdrawal settings/presets and unrelated keys are preserved.
+### Schema 11
 
-Compatibility mapping when no explicit new mode exists:
+A targeted 11 -> 12 migration creates config-v11-before-v12.yml, then:
 
-```text
-essence.enabled: true  -> breaking.non-silk-reward-mode: ESSENCE
-essence.enabled: false -> breaking.non-silk-reward-mode: NONE
-```
+- preserves active break/reward/admin/world behavior;
+- converts the old world allowlist to explicit scope.mode/scope.worlds;
+- converts declarative reward templates into exact serialized item payloads;
+- removes the dead gui withdrawal section;
+- removes dead withdrawal success/failure message keys;
+- advances config-version to 12.
 
-New custom-drop/admin/message defaults are added without sending a valid schema-10 config through the destructive pre-4.0 reset flow.
+An empty legacy allowlist becomes explicit ALL to preserve previous behavior. This does not certify
+production scope; PlexonCraft runtime certification must explicitly set and verify intended Survival
+dimensions.
 
-## WildStacker configuration audit
+Future schemas fail closed.
 
-Back up and inspect the exact production WildStacker config. Verify on the installed build that:
+## WildStacker production audit
 
-- spawner, entity and item stacking are enabled as intended;
-- intended stack limits/merge behavior are owned by WildStacker;
-- placement and spawner-item representation are WildStacker's responsibility;
-- non-Silk player breaks reach WildStacker's unstack pipeline so PlexonSpawners can apply reward policy;
-- no WildStacker setting produces a duplicate non-Silk recovery item;
-- overlapping amount/upgrade menus and spawn-egg interaction do not conflict with PlexonSpawners where the production profile expects them disabled.
+Capture the exact installed WildStacker configuration and verify it remains authoritative for:
 
-PlexonSpawners does not write WildStacker configuration.
+- spawner/entity/item stacking;
+- quantities and persistence;
+- item representation;
+- placement/merge/unstack;
+- limits;
+- tiers/upgrades;
+- native placed-spawner GUI;
+- production upgrade ladder/economics.
 
-## Runtime certification
+PlexonSpawners must not write WildStacker configuration.
 
-### WildStacker authority
-1. Place/merge identical spawners.
-2. Confirm one WildStacker logical stack and correct amount.
-3. Restart and confirm persistence.
-4. Prove PlexonSpawners created no parallel registry/database record.
+## Runtime certification after migration
 
-### Silk recovery
-1. Break with exact qualifying Silk Touch.
-2. Confirm the exact WildStacker logical amount removed.
-3. Confirm the only spawner recovery item is WildStacker's authoritative representation.
-4. Place it again and confirm WildStacker recognizes/merges it.
+Use .release/RUNTIME_CERTIFICATION_4.0.0.template.
 
-### Non-Silk rewards
-Temporarily use deterministic 100% settings for runtime proof. Verify `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, and `NONE`, including a stacked removal where `SpawnerUnstackEvent#getAmount() > 1`. Confirm one reward roll per logical unit and no recoverable spawner-item leak.
+At minimum verify:
 
-### Creative and per-mob policy
-Verify the configured Creative matrix exactly. Configure one mob override and prove it differs from another mob inheriting defaults.
-
-### Administrator GUI
-1. Open `/pspawners admin` as an authorized player.
-2. Change multiple values and close without saving; live runtime and disk must remain unchanged.
-3. Reopen, save a valid draft, verify a timestamped backup, immediate runtime application and persistence after restart.
-4. Open sessions as admins A/B, let B save, then prove A's older save is rejected as stale.
-
-See `docs/ADMIN_GUI.md` for the full GUI acceptance matrix.
-
-### Withdrawal regression
-Test stacks `1`, `2`, `9`, and `17`; presets; all available; full inventory; rapid clicks; and a stale GUI while the stack changes. The physical block must retain one logical spawner after GUI withdrawal, and GUI withdrawal must not grant break rewards.
-
-### Coexistence/performance
-Confirm WildStacker alone stacks entities/items and controls stack state. Compare TPS/MSPT to the pre-cutover baseline and inspect task/database activity for removed 3.x loops.
+- placement/merge and restart persistence;
+- singular and stacked break matrix;
+- exact reward item round-trip;
+- no parallel Plexon registry/database;
+- WildStacker native tier/upgrade GUI;
+- explicit Survival scope;
+- /pspawners give item recognition/merge;
+- 30-minute Spark/runtime soak.
 
 ## Rollback
 
-If any gate fails, stop the server cleanly and restore the matching old JAR, PlexonSpawners data, WildStacker config, and world/data backup as required. Do not perform an ad-hoc downgrade after quantity conversion without restoring corresponding pre-migration state.
+Rollback after quantity conversion is not JAR-only.
 
-Stable publication remains blocked until runtime evidence is `RUNTIME PASS` and migration evidence is `MIGRATION PASS` or `MIGRATION NOT_REQUIRED`.
+Stop the server and restore the matching pre-migration:
+
+- 3.4 JAR;
+- PlexonSpawners data;
+- WildStacker data/config;
+- relevant world/server restore point.
+
+Do not mix pre- and post-conversion state.

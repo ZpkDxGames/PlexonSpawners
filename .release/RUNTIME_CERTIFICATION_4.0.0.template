@@ -1,0 +1,145 @@
+# PlexonSpawners 4.0.0 Runtime Certification
+
+This file is a template. Do not mark PASS in repository source before the exact candidate is tested.
+
+## Candidate identity
+
+result=PENDING
+source_sha=
+candidate_jar_sha256=
+candidate_jar_size=
+paper=26.2.build.121-stable
+java=25
+wildstacker_version=
+wildstacker_api=2026.2
+plexoncore=2.1.0
+plexoncore_sha256=7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c
+
+## Migration identity
+
+migration=PENDING
+managed_physical_spawners=
+old_logical_total=
+new_logical_total=
+inventory_csv=
+conversion_checkpoint=
+unresolved_records=
+
+Allowed final migration values: PASS or NOT_REQUIRED.
+
+NOT_REQUIRED requires evidence that no legacy Plexon-managed logical quantity requires conversion.
+PASS requires old_logical_total == new_logical_total after WildStacker conversion and restart persistence.
+
+## Startup
+
+- [ ] zero EntityType.UNKNOWN/key-resolution startup errors
+- [ ] zero unexpected Exception/Error
+- [ ] WildStacker exact production version detected
+- [ ] PlexonCore 2.1.0 detected healthy, or standalone mode deliberately tested
+- [ ] /pspawners status reports schema 12, generation, scope and pending transactions accurately
+
+## WildStacker authority
+
+- [ ] placement/merge produces one WildStacker logical stack
+- [ ] restart preserves WildStacker amount
+- [ ] native tier/upgrade GUI remains authoritative
+- [ ] production upgrade ladder captured
+- [ ] no Plexon managed database/runtime registry recreated
+- [ ] no Plexon floating spawner-name/display authority
+
+## Exact break matrix
+
+- [ ] 1x Silk recovery
+- [ ] 1x ESSENCE
+- [ ] 1x CUSTOM_ITEM
+- [ ] 1x ESSENCE_AND_CUSTOM_ITEM
+- [ ] 1x NONE
+- [ ] Creative recover=true
+- [ ] Creative reward combinations
+- [ ] 2x -> 1x
+- [ ] final 1x -> 0
+- [ ] upgraded/tiered singular spawner type preserved
+- [ ] protected/cancelled break gives zero payout
+- [ ] bypass permission fails closed unless config flag + permission are both present
+- [ ] event/fallback race gives exactly one terminal result
+
+singular_matrix=PENDING
+
+## Exact reward item
+
+Capture a deliberately complex custom reward containing foreign PDC/components, enchantments,
+attributes, damage, potion state and item model.
+
+- [ ] capture amount normalized to 1
+- [ ] save
+- [ ] reload
+- [ ] restart
+- [ ] reward delivery
+- [ ] all metadata/components preserved
+- [ ] Plexon identity added without deleting foreign PDC
+
+exact_item_roundtrip=PENDING
+
+## Admin GUI / configuration transaction
+
+- [ ] unauthorized player rejected
+- [ ] number-key/offhand/drop/middle/double clicks rejected
+- [ ] draft isolation
+- [ ] close/discard leaves disk/runtime unchanged
+- [ ] save creates backup off main thread
+- [ ] valid save commits one new generation/revision
+- [ ] competing stale admin rejected
+- [ ] malformed exact item rejected without replacing known-good runtime
+- [ ] disk failure leaves known-good runtime
+- [ ] no noticeable tick stall during save
+
+## Survival scope
+
+- [ ] intended Survival dimensions explicitly enabled
+- [ ] lobby/resource/non-Survival worlds receive no Plexon break rewards/policy
+- [ ] /pspawners give remains available only as explicit admin action
+
+survival_scope=PENDING
+
+## Give command
+
+- [ ] valid namespaced entity
+- [ ] invalid entity rejected
+- [ ] invalid/large amount rejected safely
+- [ ] offline target rejected
+- [ ] full inventory behavior observed
+- [ ] placed item recognized/merged by WildStacker
+- [ ] tier/upgrade GUI unaffected
+
+## Soak / performance
+
+Run at least 30 minutes with Spark and record:
+
+tps=
+mspt_p50=
+mspt_p95=
+mspt_p99=
+heap_start=
+heap_end=
+pending_break_transactions_max=
+unexpected_warnings=
+unexpected_errors=
+
+- [ ] no removed 3.x native registry/redstone/display/entity-aggregation loop
+- [ ] no unbounded pending-break growth
+- [ ] no HIGH/CRITICAL defect
+
+spark_soak=PENDING
+
+## Final acceptance fields
+
+result=PASS|FAIL
+singular_matrix=PASS|FAIL
+exact_item_roundtrip=PASS|FAIL
+survival_scope=PASS|FAIL
+spark_soak=PASS|FAIL
+migration=PASS|NOT_REQUIRED
+old_logical_total=
+new_logical_total=
+
+Any source change after PASS invalidates this certificate and requires a new candidate hash/certification.

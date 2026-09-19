@@ -1,5 +1,6 @@
 package com.plexon.spawners.config;
 
+import com.plexon.spawners.reward.RewardItemFactory;
 import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -14,7 +15,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class ConfigBootstrap {
-    public static final int CONFIG_VERSION = 11;
+    public static final int CONFIG_VERSION = 12;
 
     private ConfigBootstrap() {}
 
@@ -33,22 +34,73 @@ public final class ConfigBootstrap {
 
         final YamlConfiguration old = YamlConfiguration.loadConfiguration(configFile);
         final int version = old.getInt("config-version", 0);
-        if (version >= CONFIG_VERSION) {
+        if (version > CONFIG_VERSION) {
+            throw new IllegalStateException("Unsupported future PlexonSpawners config schema " + version
+                + "; running schema is " + CONFIG_VERSION + ". Refusing to rewrite it.");
+        }
+        if (version == CONFIG_VERSION) {
+            plugin.reloadConfig();
+            return;
+        }
+        if (version == 11) {
+            migrate11To12(plugin, configFile, old);
             plugin.reloadConfig();
             return;
         }
         if (version == 10) {
-            migrate10To11(plugin, configFile, old);
+            migrate10To12(plugin, configFile, old);
             plugin.reloadConfig();
             return;
         }
 
-        final File backup = new File(dataFolder, "config-pre-4.0-backup.yml");
+        resetLegacyPre4(plugin, configFile, old);
+        plugin.reloadConfig();
+    }
+
+    private static void migrate11To12(
+        final JavaPlugin plugin,
+        final File configFile,
+        final YamlConfiguration config
+    ) {
+        final File backup = new File(plugin.getDataFolder(), "config-v11-before-v12.yml");
+        try {
+            if (!backup.exists()) Files.copy(configFile.toPath(), backup.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
+            ConfigV12Migration.apply(config);
+            writeAtomic(configFile, config.saveToString());
+            plugin.getLogger().info("Migrated PlexonSpawners config schema 11 -> 12; retired dead withdrawal settings and encoded exact reward items.");
+        } catch (final IOException | RuntimeException exception) {
+            throw new IllegalStateException("Could not migrate PlexonSpawners config schema 11 -> 12", exception);
+        }
+    }
+
+    private static void migrate10To12(
+        final JavaPlugin plugin,
+        final File configFile,
+        final YamlConfiguration config
+    ) {
+        final File backup = new File(plugin.getDataFolder(), "config-v10-before-v12.yml");
+        try {
+            if (!backup.exists()) Files.copy(configFile.toPath(), backup.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
+            ConfigV11Migration.apply(config);
+            ConfigV12Migration.apply(config);
+            writeAtomic(configFile, config.saveToString());
+            plugin.getLogger().info("Migrated PlexonSpawners config schema 10 -> 12 through the supported 10 -> 11 -> 12 path.");
+        } catch (final IOException | RuntimeException exception) {
+            throw new IllegalStateException("Could not migrate PlexonSpawners config schema 10 -> 12", exception);
+        }
+    }
+
+    private static void resetLegacyPre4(
+        final JavaPlugin plugin,
+        final File configFile,
+        final YamlConfiguration old
+    ) {
+        final File backup = new File(plugin.getDataFolder(), "config-pre-4.0-backup.yml");
         if (!backup.exists()) {
             try {
                 Files.copy(configFile.toPath(), backup.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
             } catch (final IOException exception) {
-                throw new IllegalStateException("Refusing 4.0 config reset because the 3.x config backup failed", exception);
+                throw new IllegalStateException("Refusing 4.0 config reset because the legacy config backup failed", exception);
             }
         }
 
@@ -57,22 +109,8 @@ public final class ConfigBootstrap {
         plugin.reloadConfig();
         retained.apply(plugin);
         plugin.saveConfig();
-        plugin.reloadConfig();
         plugin.getLogger().warning(
-            "Reset legacy PlexonSpawners configuration to the clean 4.0 schema. "
-                + "Backup: plugins/PlexonSpawners/config-pre-4.0-backup.yml");
-    }
-
-    private static void migrate10To11(final JavaPlugin plugin, final File configFile, final YamlConfiguration config) {
-        final File backup = new File(plugin.getDataFolder(), "config-v10-before-v11.yml");
-        try {
-            if (!backup.exists()) Files.copy(configFile.toPath(), backup.toPath(), StandardCopyOption.COPY_ATTRIBUTES);
-            ConfigV11Migration.apply(config);
-            writeAtomic(configFile, config.saveToString());
-            plugin.getLogger().info("Migrated PlexonSpawners config schema 10 -> 11 without resetting 4.0 settings.");
-        } catch (final IOException exception) {
-            throw new IllegalStateException("Could not migrate PlexonSpawners config schema 10 -> 11", exception);
-        }
+            "Reset legacy PlexonSpawners configuration to clean schema 12. Backup: plugins/PlexonSpawners/config-pre-4.0-backup.yml");
     }
 
     private static void writeAtomic(final File file, final String content) throws IOException {
@@ -107,15 +145,8 @@ public final class ConfigBootstrap {
             final YamlConfiguration overrides = new YamlConfiguration();
             final ConfigurationSection section = old.getConfigurationSection("essence.mob-overrides");
             if (section != null) {
-                for (final String key : section.getKeys(false)) {
-                    final Object value = section.get(key);
-                    if (value instanceof ConfigurationSection nested) {
-                        for (final String nestedKey : nested.getKeys(false)) {
-                            overrides.set(key + "." + nestedKey, nested.get(nestedKey));
-                        }
-                    } else {
-                        overrides.set(key, value);
-                    }
+                for (final String path : section.getKeys(true)) {
+                    if (!section.isConfigurationSection(path)) overrides.set(path, section.get(path));
                 }
             }
             return new RetainedSettings(
@@ -135,12 +166,20 @@ public final class ConfigBootstrap {
             if (breakingEnabled != null) plugin.getConfig().set("breaking.enabled", breakingEnabled);
             if (requiredSilk != null) plugin.getConfig().set("breaking.required-silk-touch-level", requiredSilk);
             if (allowBypass != null) plugin.getConfig().set("breaking.allow-silk-bypass-permission", allowBypass);
-            if (!enabledWorlds.isEmpty()) plugin.getConfig().set("breaking.enabled-worlds", enabledWorlds);
+
+            // Preserve old scope semantics explicitly. Empty legacy list meant ALL; non-empty meant allowlist.
+            plugin.getConfig().set("scope.mode", enabledWorlds.isEmpty() ? "ALL" : "ALLOWLIST");
+            plugin.getConfig().set("scope.worlds", enabledWorlds);
+
             if (essenceEnabled != null) plugin.getConfig().set("essence.enabled", essenceEnabled);
             if (essenceAmount != null) plugin.getConfig().set("essence.default-amount", essenceAmount);
             if (essenceChance != null) plugin.getConfig().set("essence.default-chance", essenceChance);
             if (essenceDelivery != null) plugin.getConfig().set("essence.delivery", essenceDelivery);
-            if (essenceItem != null) plugin.getConfig().set("essence.item", essenceItem);
+
+            final RewardItemFactory factory = new RewardItemFactory();
+            if (essenceItem != null && !essenceItem.getType().isAir()) {
+                factory.write(plugin.getConfig(), "essence.item", factory.sanitize(essenceItem));
+            }
             for (final String path : essenceOverrides.getKeys(true)) {
                 if (!essenceOverrides.isConfigurationSection(path)) {
                     plugin.getConfig().set("essence.mob-overrides." + path, essenceOverrides.get(path));

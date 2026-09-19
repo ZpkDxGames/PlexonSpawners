@@ -1,6 +1,7 @@
 package com.plexon.spawners.config;
 
 import com.plexon.spawners.breaking.NonSilkRewardMode;
+import com.plexon.spawners.reward.RewardItemFactory;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumMap;
@@ -14,171 +15,200 @@ import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.EntityType;
 
+/** Immutable-generation configuration facade. */
 public final class PluginSettings {
     public enum RewardDelivery {
         INVENTORY,
         GROUND;
 
-        public static RewardDelivery parse(final String value, final RewardDelivery fallback) {
-            if (value == null || value.isBlank()) return fallback;
+        public static RewardDelivery parse(final String value) {
+            if (value == null || value.isBlank()) throw new IllegalArgumentException("Reward delivery is blank");
             try {
                 return valueOf(value.trim().toUpperCase(Locale.ROOT));
             } catch (final IllegalArgumentException exception) {
-                return fallback;
+                throw new IllegalArgumentException("Invalid reward delivery: " + value, exception);
+            }
+        }
+    }
+
+    public enum ScopeMode {
+        ALL,
+        ALLOWLIST;
+
+        public static ScopeMode parse(final String value) {
+            if (value == null || value.isBlank()) throw new IllegalArgumentException("scope.mode is blank");
+            try {
+                return valueOf(value.trim().toUpperCase(Locale.ROOT));
+            } catch (final IllegalArgumentException exception) {
+                throw new IllegalArgumentException("Invalid scope.mode: " + value, exception);
             }
         }
     }
 
     public record RewardRule(int amount, double chance) {}
 
-    private volatile Snapshot runtime = Snapshot.defaults();
+    public record Snapshot(
+        int configSchema,
+        boolean breakingEnabled,
+        int requiredSilkTouchLevel,
+        boolean silkBypassPermissionEnabled,
+        NonSilkRewardMode defaultNonSilkRewardMode,
+        Map<EntityType, NonSilkRewardMode> mobRewardModes,
+        boolean creativeRecoverSpawner,
+        boolean creativeAwardEssence,
+        boolean creativeAwardCustomItem,
+        ScopeMode scopeMode,
+        Set<String> scopeWorlds,
+        boolean essenceEnabled,
+        int defaultEssenceAmount,
+        double defaultEssenceChance,
+        RewardDelivery essenceDelivery,
+        Map<EntityType, RewardRule> essenceRules,
+        RewardItemFactory.ItemDefinition essenceItem,
+        boolean customDropEnabled,
+        int defaultCustomDropAmount,
+        double defaultCustomDropChance,
+        RewardDelivery customDropDelivery,
+        Map<EntityType, RewardRule> customDropRules,
+        RewardItemFactory.ItemDefinition customItem,
+        boolean adminGuiEnabled,
+        String adminGuiTitle,
+        int configBackupsToKeep,
+        boolean silkRecoveredMessage,
+        boolean essenceAwardedMessage,
+        boolean customDropAwardedMessage,
+        List<String> validationWarnings
+    ) {
+        public Snapshot {
+            mobRewardModes = Collections.unmodifiableMap(new EnumMap<>(mobRewardModes));
+            essenceRules = Collections.unmodifiableMap(new EnumMap<>(essenceRules));
+            customDropRules = Collections.unmodifiableMap(new EnumMap<>(customDropRules));
+            scopeWorlds = Collections.unmodifiableSet(new LinkedHashSet<>(scopeWorlds));
+            validationWarnings = List.copyOf(validationWarnings);
+        }
+    }
 
-    public void reload(final FileConfiguration config) {
-        final List<String> warnings = new ArrayList<>();
-        final Set<String> enabledWorlds = new LinkedHashSet<>();
-        for (final String world : config.getStringList("breaking.enabled-worlds")) {
-            if (!world.isBlank()) enabledWorlds.add(world.toLowerCase(Locale.ROOT));
+    private volatile Snapshot runtime;
+
+    public Snapshot prepare(final FileConfiguration config) {
+        final int schema = config.getInt("config-version", -1);
+        if (schema != ConfigBootstrap.CONFIG_VERSION) {
+            throw new IllegalArgumentException("Expected config-version " + ConfigBootstrap.CONFIG_VERSION + ", got " + schema);
         }
 
-        final int requiredSilk = clamp(config.getInt("breaking.required-silk-touch-level", 1), 0, 255);
-        final NonSilkRewardMode defaultMode = parseMode(
-            config.getString("breaking.non-silk-reward-mode", "ESSENCE"), NonSilkRewardMode.ESSENCE, warnings,
+        final int requiredSilk = bounded(config.getInt("breaking.required-silk-touch-level", 1), 0, 255,
+            "breaking.required-silk-touch-level");
+        final NonSilkRewardMode defaultMode = parseMode(config.getString("breaking.non-silk-reward-mode"),
             "breaking.non-silk-reward-mode");
+        final ScopeMode scopeMode = ScopeMode.parse(config.getString("scope.mode", "ALLOWLIST"));
+        final LinkedHashSet<String> scopeWorlds = new LinkedHashSet<>();
+        for (final String world : config.getStringList("scope.worlds")) {
+            final String normalized = normalizeScopeToken(world);
+            if (!normalized.isBlank()) scopeWorlds.add(normalized);
+        }
+        if (scopeMode == ScopeMode.ALLOWLIST && scopeWorlds.isEmpty()) {
+            throw new IllegalArgumentException("scope.worlds cannot be empty when scope.mode=ALLOWLIST");
+        }
 
-        final int defaultEssenceAmount = clamp(config.getInt("essence.default-amount", 1), 1, 4096);
-        final double defaultEssenceChance = clampChance(config.getDouble("essence.default-chance", 35.0));
-        final RewardDelivery essenceDelivery = parseDelivery(config.getString("essence.delivery", "INVENTORY"), warnings,
-            "essence.delivery");
+        final int essenceAmount = bounded(config.getInt("essence.default-amount", 1), 1, 4096,
+            "essence.default-amount");
+        final double essenceChance = chance(config.getDouble("essence.default-chance", 35.0D),
+            "essence.default-chance");
+        final RewardDelivery essenceDelivery = RewardDelivery.parse(config.getString("essence.delivery", "INVENTORY"));
+
+        final int customAmount = bounded(config.getInt("custom-drop.default-amount", 1), 1, 4096,
+            "custom-drop.default-amount");
+        final double customChance = chance(config.getDouble("custom-drop.default-chance", 15.0D),
+            "custom-drop.default-chance");
+        final RewardDelivery customDelivery = RewardDelivery.parse(config.getString("custom-drop.delivery", "INVENTORY"));
+
         final EnumMap<EntityType, RewardRule> essenceRules = rules(
-            config.getConfigurationSection("essence.mob-overrides"), defaultEssenceAmount, defaultEssenceChance, warnings,
-            "essence.mob-overrides");
-
-        final int defaultCustomAmount = clamp(config.getInt("custom-drop.default-amount", 1), 1, 4096);
-        final double defaultCustomChance = clampChance(config.getDouble("custom-drop.default-chance", 15.0));
-        final RewardDelivery customDelivery = parseDelivery(config.getString("custom-drop.delivery", "INVENTORY"), warnings,
-            "custom-drop.delivery");
+            config.getConfigurationSection("essence.mob-overrides"), essenceAmount, essenceChance, "essence.mob-overrides");
         final EnumMap<EntityType, RewardRule> customRules = rules(
-            config.getConfigurationSection("custom-drop.mob-overrides"), defaultCustomAmount, defaultCustomChance, warnings,
-            "custom-drop.mob-overrides");
+            config.getConfigurationSection("custom-drop.mob-overrides"), customAmount, customChance, "custom-drop.mob-overrides");
+        final EnumMap<EntityType, NonSilkRewardMode> rewardModes = modes(
+            config.getConfigurationSection("rewards.mob-overrides"));
 
-        final EnumMap<EntityType, NonSilkRewardMode> mobModes = new EnumMap<>(EntityType.class);
-        final ConfigurationSection rewardOverrides = config.getConfigurationSection("rewards.mob-overrides");
-        if (rewardOverrides != null) {
-            for (final String key : rewardOverrides.getKeys(false)) {
-                final EntityType type = parseEntityType(key);
-                if (type == null) {
-                    warnings.add("Unknown rewards.mob-overrides entity type: " + key);
-                    continue;
-                }
-                final String raw = rewardOverrides.getString(key + ".mode");
-                if (raw != null) {
-                    mobModes.put(type, parseMode(raw, defaultMode, warnings, "rewards.mob-overrides." + key + ".mode"));
-                }
-            }
+        final RewardItemFactory items = new RewardItemFactory();
+        final RewardItemFactory.ItemDefinition essenceItem = items.read(config, "essence.item",
+            org.bukkit.Material.AMETHYST_SHARD,
+            "<gradient:#56B9F2:#92E1FF><b>Spawner Essence</b></gradient>",
+            List.of("<gray>A concentrated fragment of spawner energy.</gray>"), true);
+        final RewardItemFactory.ItemDefinition customItem = items.read(config, "custom-drop.item",
+            org.bukkit.Material.PRISMARINE_CRYSTALS,
+            "<gradient:#7BE7FF:#4AA8FF><b>Spawner Fragment</b></gradient>",
+            List.of("<gray>Dropped when a spawner is broken without Silk Touch.</gray>"), true);
+        if (essenceItem == null || !essenceItem.valid()) throw new IllegalArgumentException("Invalid Essence item template");
+        if (customItem == null || !customItem.valid()) throw new IllegalArgumentException("Invalid custom item template");
+
+        final String adminTitle = config.getString("admin-gui.title",
+            "<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Admin</b></gradient>");
+        validateMiniMessage(adminTitle, "admin-gui.title");
+
+        final List<String> warnings = new ArrayList<>();
+        if (scopeMode == ScopeMode.ALL) {
+            warnings.add("Scope is explicitly ALL; PlexonCraft production should normally use an explicit Survival allowlist.");
         }
 
-        final LinkedHashSet<Integer> presetSet = new LinkedHashSet<>();
-        for (final int preset : config.getIntegerList("gui.withdraw-presets")) {
-            if (preset > 0) presetSet.add(Math.min(4096, preset));
-        }
-        final List<Integer> presets = presetSet.isEmpty() ? List.of(1, 8, 16, 32, 64) : List.copyOf(presetSet);
-
-        runtime = new Snapshot(
-            config.getInt("config-version", ConfigBootstrap.CONFIG_VERSION),
+        return new Snapshot(
+            schema,
             config.getBoolean("breaking.enabled", true),
             requiredSilk,
             config.getBoolean("breaking.allow-silk-bypass-permission", false),
             defaultMode,
-            Collections.unmodifiableMap(mobModes),
-            config.getBoolean("breaking.creative.recover-spawner", false),
-            config.getBoolean("breaking.creative.award-essence", false),
+            rewardModes,
+            config.getBoolean("breaking.creative.recover-spawner", true),
+            config.getBoolean("breaking.creative.award-essence", true),
             config.getBoolean("breaking.creative.award-custom-item", false),
-            Collections.unmodifiableSet(enabledWorlds),
+            scopeMode,
+            scopeWorlds,
             config.getBoolean("essence.enabled", true),
-            defaultEssenceAmount,
-            defaultEssenceChance,
+            essenceAmount,
+            essenceChance,
             essenceDelivery,
-            Collections.unmodifiableMap(essenceRules),
+            essenceRules,
+            essenceItem,
             config.getBoolean("custom-drop.enabled", false),
-            defaultCustomAmount,
-            defaultCustomChance,
+            customAmount,
+            customChance,
             customDelivery,
-            Collections.unmodifiableMap(customRules),
-            config.getBoolean("gui.enabled", true),
-            config.getBoolean("gui.open-on-right-click", true),
-            config.getString("gui.title", "<gradient:#56B9F2:#92E1FF><b>Spawner Withdrawal</b></gradient>"),
-            presets,
+            customRules,
+            customItem,
             config.getBoolean("admin-gui.enabled", true),
-            config.getString("admin-gui.title", "<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Admin</b></gradient>"),
-            clamp(config.getInt("admin-gui.config-backups-to-keep", 10), 1, 50),
+            adminTitle,
+            bounded(config.getInt("admin-gui.config-backups-to-keep", 10), 1, 50,
+                "admin-gui.config-backups-to-keep"),
             config.getBoolean("messages.silk-recovered", true),
             config.getBoolean("messages.essence-awarded", true),
             config.getBoolean("messages.custom-drop-awarded", true),
-            config.getBoolean("messages.withdraw-success", true),
-            config.getBoolean("messages.withdraw-failed", true),
-            List.copyOf(warnings));
+            warnings);
     }
 
-    private static EnumMap<EntityType, RewardRule> rules(
-        final ConfigurationSection overrides,
-        final int defaultAmount,
-        final double defaultChance,
-        final List<String> warnings,
-        final String path
-    ) {
-        final EnumMap<EntityType, RewardRule> rules = new EnumMap<>(EntityType.class);
-        for (final EntityType type : EntityType.values()) rules.put(type, new RewardRule(defaultAmount, defaultChance));
-        if (overrides == null) return rules;
-        for (final String key : overrides.getKeys(false)) {
-            final EntityType type = parseEntityType(key);
-            if (type == null) {
-                warnings.add("Unknown " + path + " entity type: " + key);
-                continue;
-            }
-            final ConfigurationSection mob = overrides.getConfigurationSection(key);
-            if (mob != null) {
-                rules.put(type, new RewardRule(
-                    clamp(mob.getInt("amount", defaultAmount), 1, 4096),
-                    clampChance(mob.getDouble("chance", defaultChance))));
-            } else if (overrides.isInt(key)) {
-                rules.put(type, new RewardRule(clamp(overrides.getInt(key), 1, 4096), defaultChance));
-            }
-        }
-        return rules;
+    public void commit(final Snapshot prepared) {
+        runtime = java.util.Objects.requireNonNull(prepared, "prepared");
     }
 
-    private static NonSilkRewardMode parseMode(
-        final String raw,
-        final NonSilkRewardMode fallback,
-        final List<String> warnings,
-        final String path
-    ) {
-        final NonSilkRewardMode parsed = NonSilkRewardMode.parse(raw, null);
-        if (parsed != null) return parsed;
-        warnings.add("Invalid " + path + "; using " + fallback + ".");
-        return fallback;
-    }
-
-    private static RewardDelivery parseDelivery(final String raw, final List<String> warnings, final String path) {
-        final RewardDelivery parsed = RewardDelivery.parse(raw, null);
-        if (parsed != null) return parsed;
-        warnings.add("Invalid " + path + "; using INVENTORY.");
-        return RewardDelivery.INVENTORY;
-    }
+    public Snapshot snapshot() { return runtime; }
 
     public boolean isWorldEnabled(final World world) {
-        final Set<String> worlds = runtime.enabledWorlds();
-        return worlds.isEmpty() || worlds.contains(world.getName().toLowerCase(Locale.ROOT));
+        if (world == null) return false;
+        final Snapshot current = runtime;
+        if (current.scopeMode() == ScopeMode.ALL) return true;
+        final String name = world.getName().toLowerCase(Locale.ROOT);
+        final String uuid = world.getUID().toString().toLowerCase(Locale.ROOT);
+        return current.scopeWorlds().contains(name) || current.scopeWorlds().contains(uuid);
     }
 
     public RewardRule essenceRule(final EntityType type) {
-        return runtime.essenceRules().getOrDefault(type,
-            new RewardRule(runtime.defaultEssenceAmount(), runtime.defaultEssenceChance()));
+        final Snapshot current = runtime;
+        return current.essenceRules().getOrDefault(type,
+            new RewardRule(current.defaultEssenceAmount(), current.defaultEssenceChance()));
     }
 
     public RewardRule customDropRule(final EntityType type) {
-        return runtime.customDropRules().getOrDefault(type,
-            new RewardRule(runtime.defaultCustomDropAmount(), runtime.defaultCustomDropChance()));
+        final Snapshot current = runtime;
+        return current.customDropRules().getOrDefault(type,
+            new RewardRule(current.defaultCustomDropAmount(), current.defaultCustomDropChance()));
     }
 
     public NonSilkRewardMode nonSilkRewardMode(final EntityType type) {
@@ -193,89 +223,97 @@ public final class PluginSettings {
     public boolean creativeRecoverSpawner() { return runtime.creativeRecoverSpawner(); }
     public boolean creativeAwardEssence() { return runtime.creativeAwardEssence(); }
     public boolean creativeAwardCustomItem() { return runtime.creativeAwardCustomItem(); }
-    public Set<String> enabledWorlds() { return runtime.enabledWorlds(); }
+    public ScopeMode scopeMode() { return runtime.scopeMode(); }
+    public Set<String> enabledWorlds() { return runtime.scopeWorlds(); }
     public boolean essenceEnabled() { return runtime.essenceEnabled(); }
     public int defaultEssenceAmount() { return runtime.defaultEssenceAmount(); }
     public double defaultEssenceChance() { return runtime.defaultEssenceChance(); }
     public RewardDelivery essenceDelivery() { return runtime.essenceDelivery(); }
+    public RewardItemFactory.ItemDefinition essenceItem() { return runtime.essenceItem(); }
     public boolean customDropEnabled() { return runtime.customDropEnabled(); }
     public int defaultCustomDropAmount() { return runtime.defaultCustomDropAmount(); }
     public double defaultCustomDropChance() { return runtime.defaultCustomDropChance(); }
     public RewardDelivery customDropDelivery() { return runtime.customDropDelivery(); }
-    public boolean guiEnabled() { return runtime.guiEnabled(); }
-    public boolean guiOpenOnRightClick() { return runtime.guiOpenOnRightClick(); }
-    public String guiTitle() { return runtime.guiTitle(); }
-    public List<Integer> withdrawPresets() { return runtime.withdrawPresets(); }
+    public RewardItemFactory.ItemDefinition customItem() { return runtime.customItem(); }
     public boolean adminGuiEnabled() { return runtime.adminGuiEnabled(); }
     public String adminGuiTitle() { return runtime.adminGuiTitle(); }
     public int configBackupsToKeep() { return runtime.configBackupsToKeep(); }
     public boolean silkRecoveredMessage() { return runtime.silkRecoveredMessage(); }
     public boolean essenceAwardedMessage() { return runtime.essenceAwardedMessage(); }
     public boolean customDropAwardedMessage() { return runtime.customDropAwardedMessage(); }
-    public boolean withdrawSuccessMessage() { return runtime.withdrawSuccessMessage(); }
-    public boolean withdrawFailedMessage() { return runtime.withdrawFailedMessage(); }
     public List<String> validationWarnings() { return runtime.validationWarnings(); }
 
     public static EntityType parseEntityType(final String input) {
-        if (input == null) return null;
+        if (input == null || input.isBlank()) return null;
+        final String normalized = input.trim().replace('-', '_').toUpperCase(Locale.ROOT);
         try {
-            return EntityType.valueOf(input.trim().toUpperCase(Locale.ROOT));
+            final EntityType type = EntityType.valueOf(normalized);
+            return type == EntityType.UNKNOWN ? null : type;
         } catch (final IllegalArgumentException exception) {
             return null;
         }
     }
 
-    private static int clamp(final int value, final int min, final int max) {
-        return Math.max(min, Math.min(max, value));
-    }
-
-    private static double clampChance(final double value) {
-        if (!Double.isFinite(value)) return 0.0D;
-        return Math.max(0.0D, Math.min(100.0D, value));
-    }
-
-    private record Snapshot(
-        int configSchema,
-        boolean breakingEnabled,
-        int requiredSilkTouchLevel,
-        boolean silkBypassPermissionEnabled,
-        NonSilkRewardMode defaultNonSilkRewardMode,
-        Map<EntityType, NonSilkRewardMode> mobRewardModes,
-        boolean creativeRecoverSpawner,
-        boolean creativeAwardEssence,
-        boolean creativeAwardCustomItem,
-        Set<String> enabledWorlds,
-        boolean essenceEnabled,
-        int defaultEssenceAmount,
-        double defaultEssenceChance,
-        RewardDelivery essenceDelivery,
-        Map<EntityType, RewardRule> essenceRules,
-        boolean customDropEnabled,
-        int defaultCustomDropAmount,
-        double defaultCustomDropChance,
-        RewardDelivery customDropDelivery,
-        Map<EntityType, RewardRule> customDropRules,
-        boolean guiEnabled,
-        boolean guiOpenOnRightClick,
-        String guiTitle,
-        List<Integer> withdrawPresets,
-        boolean adminGuiEnabled,
-        String adminGuiTitle,
-        int configBackupsToKeep,
-        boolean silkRecoveredMessage,
-        boolean essenceAwardedMessage,
-        boolean customDropAwardedMessage,
-        boolean withdrawSuccessMessage,
-        boolean withdrawFailedMessage,
-        List<String> validationWarnings
+    private static EnumMap<EntityType, RewardRule> rules(
+        final ConfigurationSection overrides,
+        final int defaultAmount,
+        final double defaultChance,
+        final String path
     ) {
-        private static Snapshot defaults() {
-            return new Snapshot(11, true, 1, false, NonSilkRewardMode.ESSENCE, Map.of(), false, false, false,
-                Set.of(), true, 1, 35.0D, RewardDelivery.INVENTORY, Map.of(), false, 1, 15.0D,
-                RewardDelivery.INVENTORY, Map.of(), true, true,
-                "<gradient:#56B9F2:#92E1FF><b>Spawner Withdrawal</b></gradient>", List.of(1, 8, 16, 32, 64),
-                true, "<gradient:#56B9F2:#92E1FF><b>PlexonSpawners Admin</b></gradient>", 10,
-                true, true, true, true, true, List.of());
+        final EnumMap<EntityType, RewardRule> result = new EnumMap<>(EntityType.class);
+        if (overrides == null) return result;
+        for (final String key : overrides.getKeys(false)) {
+            final EntityType type = parseEntityType(key);
+            if (type == null) throw new IllegalArgumentException("Unknown entity type at " + path + "." + key);
+            final ConfigurationSection section = overrides.getConfigurationSection(key);
+            if (section == null) throw new IllegalArgumentException("Expected section at " + path + "." + key);
+            result.put(type, new RewardRule(
+                bounded(section.getInt("amount", defaultAmount), 1, 4096, path + "." + key + ".amount"),
+                chance(section.getDouble("chance", defaultChance), path + "." + key + ".chance")));
+        }
+        return result;
+    }
+
+    private static EnumMap<EntityType, NonSilkRewardMode> modes(final ConfigurationSection overrides) {
+        final EnumMap<EntityType, NonSilkRewardMode> result = new EnumMap<>(EntityType.class);
+        if (overrides == null) return result;
+        for (final String key : overrides.getKeys(false)) {
+            final EntityType type = parseEntityType(key);
+            if (type == null) throw new IllegalArgumentException("Unknown entity type at rewards.mob-overrides." + key);
+            final String value = overrides.getString(key + ".mode");
+            if (value != null) result.put(type, parseMode(value, "rewards.mob-overrides." + key + ".mode"));
+        }
+        return result;
+    }
+
+    private static NonSilkRewardMode parseMode(final String raw, final String path) {
+        final NonSilkRewardMode mode = NonSilkRewardMode.parse(raw, null);
+        if (mode == null) throw new IllegalArgumentException("Invalid reward mode at " + path + ": " + raw);
+        return mode;
+    }
+
+    private static int bounded(final int value, final int min, final int max, final String path) {
+        if (value < min || value > max) throw new IllegalArgumentException(path + " must be " + min + ".." + max);
+        return value;
+    }
+
+    private static double chance(final double value, final String path) {
+        if (!Double.isFinite(value) || value < 0.0D || value > 100.0D) {
+            throw new IllegalArgumentException(path + " must be finite and 0..100");
+        }
+        return value;
+    }
+
+    private static String normalizeScopeToken(final String raw) {
+        return raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static void validateMiniMessage(final String value, final String path) {
+        if (value == null) throw new IllegalArgumentException(path + " cannot be null");
+        try {
+            net.kyori.adventure.text.minimessage.MiniMessage.miniMessage().deserialize(value);
+        } catch (final RuntimeException exception) {
+            throw new IllegalArgumentException("Invalid MiniMessage at " + path, exception);
         }
     }
 }

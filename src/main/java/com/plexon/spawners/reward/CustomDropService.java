@@ -1,43 +1,35 @@
 package com.plexon.spawners.reward;
 
 import com.plexon.spawners.config.PluginSettings;
-import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import org.bukkit.Location;
-import org.bukkit.Material;
 import org.bukkit.NamespacedKey;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.plugin.java.JavaPlugin;
 
 public final class CustomDropService {
-    private static final String DEFAULT_NAME = "<gradient:#7BE7FF:#4AA8FF><b>Spawner Fragment</b></gradient>";
-    private static final List<String> DEFAULT_LORE = List.of(
-        "<gray>Dropped when a spawner is broken without Silk Touch.</gray>",
-        "<dark_gray>PlexonSpawners custom reward</dark_gray>");
-
-    private final JavaPlugin plugin;
     private final PluginSettings settings;
     private final RewardItemFactory itemFactory = new RewardItemFactory();
     private final NamespacedKey identityKey;
-    private ItemStack template;
+    private volatile ItemStack template;
 
     public CustomDropService(final JavaPlugin plugin, final PluginSettings settings) {
-        this.plugin = plugin;
         this.settings = settings;
         this.identityKey = new NamespacedKey(plugin, "custom_drop");
-        reload();
     }
 
-    public void reload() {
-        final RewardItemFactory.ItemDefinition definition = itemFactory.read(
-            plugin.getConfig().getConfigurationSection("custom-drop.item"),
-            Material.PRISMARINE_CRYSTALS,
-            DEFAULT_NAME,
-            DEFAULT_LORE,
-            true);
-        template = itemFactory.build(definition, identityKey);
+    public ItemStack prepare(final PluginSettings.Snapshot snapshot) {
+        final ItemStack prepared = itemFactory.build(snapshot.customItem(), identityKey);
+        if (prepared.getType().isAir()) throw new IllegalArgumentException("Prepared custom reward item is AIR");
+        return prepared;
+    }
+
+    public void commit(final ItemStack prepared) {
+        template = prepared.clone();
+        template.setAmount(1);
     }
 
     public RewardRollPolicy.Award evaluate(final EntityType type, final int logicalAmount) {
@@ -51,6 +43,12 @@ public final class CustomDropService {
     }
 
     public ItemStack preview() {
-        return template.clone();
+        return template == null ? new ItemStack(org.bukkit.Material.AIR) : template.clone();
+    }
+
+    public boolean isCustomReward(final ItemStack item) {
+        if (item == null || item.getType().isAir()) return false;
+        final Integer marker = item.getItemMeta().getPersistentDataContainer().get(identityKey, PersistentDataType.INTEGER);
+        return marker != null && marker == 1;
     }
 }

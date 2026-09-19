@@ -1,92 +1,100 @@
 # PlexonSpawners 4.0.0 — WildStacker-Authoritative Policy Release
 
-## Product boundary
+## Architecture
 
-WildStacker is the required and exclusive engine for spawner stacks, quantities, spawner items, placement, merging, unstacking, mob/entity stacks, dropped-item stacks, limits, persistence, upgrades/tiers and normal placed-spawner interaction.
+WildStacker is the required and exclusive authority for spawner quantities, persistence, placement,
+merging, unstacking, spawner items, stack limits, tiers/upgrades, normal placed-spawner interaction,
+entity stacking and item stacking.
 
-PlexonSpawners owns only Plexon-specific recovery/reward policy and its administrator GUI. The deleted 3.x managed stack subsystem, native placement/merge logic, stack database, entity aggregation/fallback engine, tiers/upgrades/access state, redstone logical-stack lock, custom stack displays and PlexonCore bridge remain absent.
+PlexonSpawners 4.0 owns only Plexon-specific break/recovery/reward policy, administration,
+diagnostics, a read-only policy API and post-commit policy events.
 
-## Final interaction handoff
+The final runtime contains no 3.x ManagedSpawnerRegistry, native placement/merge engine, duplicate
+stack persistence, Plexon tier/upgrade engine, redstone stack lock, stack display service, withdrawal
+GUI or fallback entity stacking engine.
 
-PlexonSpawners no longer opens its own withdrawal interface when interacting with placed spawners. It does not cancel or consume the normal spawner right-click path. WildStacker receives the interaction normally and remains the sole owner of its native tier/upgrade GUI.
+## Schema 12
 
-The PlexonSpawners administrator GUI remains available through `/pspawners admin` for Plexon-owned break and reward policy.
+- config-version: 12.
+- Dead withdrawal GUI keys/messages are retired.
+- Fresh installs use an explicit Survival allowlist.
+- Schema-11 empty legacy allowlists migrate to explicit scope.mode: ALL to preserve old semantics;
+  operators must explicitly configure the PlexonCraft production Survival scope before certification.
+- Future schemas fail closed.
 
-## 4.0 administrator/reward enhancement
+## Exact custom rewards
 
-- `/pspawners admin` opens a permission-protected policy dashboard.
-- `/pspawners give <player> <mobtype> <amount>` delegates spawner-item creation to WildStacker.
-- Admin edits are isolated drafts; no click writes live config.
-- Save performs validation, stale-revision rejection, timestamped backup, same-directory temporary serialization, atomic replacement where supported, runtime reload and revision advancement.
-- Non-Silk modes: `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, `NONE`.
-- Essence and custom item schemes roll independently per exact `SpawnerUnstackEvent#getAmount()` logical unit and aggregate successful delivery.
-- Per-mob mode/amount/chance overrides inherit defaults and can be reset.
-- Custom reward templates receive a stable PlexonSpawners identity; held-item capture is sanitized rather than preserving arbitrary PDC.
-- Existing WildStacker-authoritative Silk recovery is retained.
-- Schema 10 upgrades through the targeted schema 11 migration; the final GUI handoff does not create another schema version.
+Paper exact item byte serialization is the authoritative stored format after capture/migration.
+Template amount is normalized to one. Reward delivery clones the exact template, preserves foreign
+PDC/components/attributes/enchantments/damage/potion state/item model, and adds Plexon identity
+non-destructively.
 
-## Final singular break-parity remediation
+## Atomic administration
 
-Live runtime testing invalidated the previous broad 4.0 acceptance because the last physical `1x` spawner could disappear without the configured Plexon recovery/reward result.
+The admin GUI keeps isolated drafts bound to a config revision and runtime generation. Save uses:
 
-The final 4.0 source remediation:
+1. primary-thread permission/session/revision validation and immutable draft capture;
+2. bounded I/O backup, serialization, temp write and atomic replacement;
+3. primary-thread prepared runtime generation commit;
+4. revision advancement only after successful commit;
+5. asynchronous backup pruning/rollback handling.
 
-- accepts WildStacker's valid transient/non-cached singular `StackedSpawner` representation instead of using `isCached()` as a validity gate;
-- captures physical `BlockBreakEvent` intent before WildStacker's `HIGHEST` mutation path without cancelling or replacing WildStacker's break handling;
-- snapshots spawned type and WildStacker's authoritative recovery item before the destructive `1 -> 0` transition;
-- keeps `SpawnerUnstackEvent#getAmount()` authoritative whenever emitted;
-- keeps `SpawnerDropEvent` as the preferred native-drop interception/finalization signal;
-- adds next-tick state reconciliation for the singular event-gap/final-unit path;
-- uses one exactly-once terminal gate so native events and fallback cannot duplicate recovery, Essence or custom rewards;
-- treats unchanged/protected breaks as denied with zero payout;
-- preserves WildStacker's right-click manage/tier GUI and namespaced `/pspawners give` delegation.
+Unsafe inventory click types are rejected and semantic actions are deferred/revalidated.
 
-No new configuration or migration is introduced. Schema remains `11` and migration status remains `NOT_REQUIRED`.
+## Break coordination
 
-See `docs/RUNTIME_SINGULAR_BREAK_PARITY.md` for the source-level defect boundary and runtime gate.
+The final singular-break remediation remains WildStacker-authoritative:
 
-## Required final deployment gate
+- physical break intent is observed before destructive handling without stealing mutation authority;
+- transient/non-cached singular WildStacker objects remain valid;
+- spawned type and authoritative recovery item are snapshotted before final 1 -> 0;
+- SpawnerUnstackEvent#getAmount() remains authoritative when emitted;
+- SpawnerDropEvent is the preferred native-drop finalization signal;
+- next-tick reconciliation handles event-gap cases;
+- one terminal gate prevents duplicate reward/recovery;
+- protected/unchanged breaks pay nothing.
 
-Do not publish stable until the exact final CI-built JAR passes all of the following on PlexonCraft:
+## API, events and Core
 
-- singular `1x` Silk recovery;
-- singular `1x` non-Silk Essence;
-- singular custom/BOTH reward;
-- current creative recovery/reward policy;
-- `2x -> 1x` regression;
-- final `1x -> 0` regression;
-- upgraded singular type/tier preservation;
-- protected/cancelled break with zero payout;
-- WildStacker native right-click manage/tier GUI;
-- `/pspawners give <online-player> zombie 2` (or equivalent).
+A small Bukkit ServicesManager API exposes policy/integration reads only. It has no stack mutation
+surface. Post-commit events report finalized recovery/reward/break outcomes.
 
-Migration status for this final campaign is:
+PlexonCore 2.1.0 is an optional thin lifecycle/health/scheduling integration. The compile/test artifact
+is pinned to SHA-256:
 
-```text
-NOT_REQUIRED
-```
+7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c
 
-Do not infer live runtime PASS from unit tests or GitHub Actions.
+Core never owns spawner quantities, persistence, placement, merging, items or upgrades.
 
-## Stable evidence
+## Migration gate
 
-Before publishing `v4.0.0`, record:
+Migration status is deliberately PENDING until the production 3.4 state is inventoried.
 
-- exact final feature/candidate SHA;
-- canonical test totals and GitHub Actions run/artifact IDs;
-- full singular + stacked live runtime matrix;
-- final `main` SHA;
-- final `release/stable` SHA;
-- `v4.0.0` tag target;
-- public GitHub release asset size and SHA-256;
-- provenance verification that the public release JAR matches the accepted final source/build boundary.
+Use tools/legacy_managed_inventory.py to export the old managed-spawners.db physical count and
+logical total without mutating it. If any legacy logical quantity exists, stable publication remains
+blocked until a separate one-shot WildStacker conversion is completed with per-location evidence and:
 
-## Current release state
+old_logical_total == new_logical_total
 
-```text
-SOURCE REMEDIATION IN PROGRESS
-SINGULAR RUNTIME FAILURE INVALIDATED PRIOR BROAD ACCEPTANCE
-EXACT REMEDIATED CANDIDATE LIVE MATRIX REQUIRED
-MIGRATION NOT_REQUIRED
-V4.0.0 NOT YET PUBLISHED
-```
+If no legacy managed quantity exists, NOT_REQUIRED still needs recorded evidence.
+
+## Stable publication gate
+
+v4.0.0 may publish only when the release workflow proves:
+
+- certified source SHA equals the exact main == release/stable SHA;
+- the successful Build workflow exists for that SHA;
+- deterministic rebuilt JAR SHA-256 equals the live-tested candidate SHA-256;
+- Paper/WildStacker/Core identities match certification;
+- singular/stacked matrix PASS;
+- exact reward item round-trip PASS;
+- Survival scope PASS;
+- 30-minute Spark/runtime soak PASS;
+- migration PASS or NOT_REQUIRED with valid totals.
+
+Any source change after live PASS invalidates the certificate.
+
+Rollback baseline remains v3.4.0 at
+cd9966c79add8c98dcdb389d2fc722ce66d795ec,
+JAR SHA-256
+6fd9b6119371820173307853a7b58243ebf1f28e083212dcc6287c01d68f3c58.

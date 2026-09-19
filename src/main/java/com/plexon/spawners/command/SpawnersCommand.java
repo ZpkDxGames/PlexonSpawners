@@ -50,21 +50,22 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
             adminGui.open(player);
             return true;
         }
-
-        if (sub.equals("give")) {
-            return giveSpawner(sender, args);
-        }
-
+        if (sub.equals("give")) return giveSpawner(sender, args);
         if (sub.equals("reload")) {
             if (!sender.hasPermission("plexonspawners.admin.reload")) {
                 messages.send(sender, "no-permission");
                 return true;
             }
-            plugin.reloadPlugin();
-            messages.send(sender, "reloaded");
+            messages.send(sender, "reload-started");
+            plugin.reloadPluginAsync().whenComplete((revision, error) -> plugin.coreBridge().runPrimary(() -> {
+                if (error == null) {
+                    messages.send(sender, "reloaded", Map.of("revision", Long.toString(revision)));
+                } else {
+                    messages.send(sender, "reload-failed", Map.of("error", safe(rootMessage(error))));
+                }
+            }));
             return true;
         }
-
         if (sub.equals("status")) {
             if (!sender.hasPermission("plexonspawners.admin.status")) {
                 messages.send(sender, "no-permission");
@@ -72,33 +73,38 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
             }
             sender.sendMessage(messages.parse("<gradient:#56B9F2:#92E1FF><b>PlexonSpawners "
                 + plugin.getPluginMeta().getVersion() + "</b></gradient>"));
-            sender.sendMessage(messages.parse("<gray>WildStacker:</gray> <#72F1B8>detected</#72F1B8> <white>"
+            sender.sendMessage(messages.parse("<gray>WildStacker:</gray> <#72F1B8>required/ready</#72F1B8> <white>"
                 + plugin.wildStacker().version() + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Stack authority:</gray> <white>WildStacker</white>"));
-            sender.sendMessage(messages.parse("<gray>Config schema:</gray> <white>" + plugin.settings().configSchema() + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Config revision:</gray> <white>" + plugin.revisions().current() + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Breaking policy:</gray> <white>"
+            sender.sendMessage(messages.parse("<gray>Stack/item/upgrade authority:</gray> <white>WildStacker</white>"));
+            sender.sendMessage(messages.parse("<gray>Core:</gray> <white>" + plugin.coreBridge().mode()
+                + " / " + plugin.coreBridge().registrationState() + "</white>"));
+            sender.sendMessage(messages.parse("<gray>Core version/API:</gray> <white>"
+                + plugin.coreBridge().pluginVersion() + " / " + plugin.coreBridge().apiVersion() + "</white>"));
+            sender.sendMessage(messages.parse("<gray>Config schema:</gray> <white>"
+                + plugin.settings().configSchema() + "</white>"));
+            sender.sendMessage(messages.parse("<gray>Generation/revision:</gray> <white>"
+                + plugin.runtimeGeneration() + "/" + plugin.revisions().current() + "</white>"));
+            sender.sendMessage(messages.parse("<gray>World scope:</gray> <white>"
+                + plugin.settings().scopeMode() + " " + safe(plugin.settings().enabledWorlds().toString()) + "</white>"));
+            sender.sendMessage(messages.parse("<gray>Breaking:</gray> <white>"
                 + enabled(plugin.settings().breakingEnabled()) + "</white>"));
             sender.sendMessage(messages.parse("<gray>Required Silk Touch:</gray> <white>"
                 + plugin.settings().requiredSilkTouchLevel() + "</white>"));
             sender.sendMessage(messages.parse("<gray>Non-Silk mode:</gray> <white>"
                 + plugin.settings().defaultNonSilkRewardMode() + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Essence:</gray> <white>"
-                + enabled(plugin.settings().essenceEnabled()) + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Custom drop:</gray> <white>"
+            sender.sendMessage(messages.parse("<gray>Essence/custom:</gray> <white>"
+                + enabled(plugin.settings().essenceEnabled()) + " / "
                 + enabled(plugin.settings().customDropEnabled()) + "</white>"));
-            sender.sendMessage(messages.parse("<gray>Spawner interaction:</gray> <white>WildStacker</white>"));
-            sender.sendMessage(messages.parse("<gray>World scope:</gray> <white>"
-                + (plugin.settings().enabledWorlds().isEmpty() ? "ALL" : plugin.settings().enabledWorlds().size() + " configured")
-                + "</white>"));
-            sender.sendMessage(messages.parse("<#FFD166>WildStacker prerequisite:</#FFD166> <gray>non-Silk breaks must reach its unstack pipeline; PlexonSpawners does not edit WildStacker configuration.</gray>"));
+            sender.sendMessage(messages.parse("<gray>Pending break transactions:</gray> <white>"
+                + plugin.pendingBreakTransactions() + "</white>"));
             for (final String warning : plugin.settings().validationWarnings()) {
-                sender.sendMessage(messages.parse("<#FFD166>Config warning:</#FFD166> <gray>" + escape(warning) + "</gray>"));
+                sender.sendMessage(messages.parse("<#FFD166>Config warning:</#FFD166> <gray>"
+                    + safe(warning) + "</gray>"));
             }
             return true;
         }
-
-        sender.sendMessage(messages.parse("<gray>Usage:</gray> <white>/" + label + " <admin|give|status|reload></white>"));
+        sender.sendMessage(messages.parse("<gray>Usage:</gray> <white>/" + label
+            + " <admin|give|status|reload></white>"));
         return true;
     }
 
@@ -111,45 +117,38 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
             messages.send(sender, "give-usage");
             return true;
         }
-
         final Player target = Bukkit.getPlayerExact(args[1]);
         if (target == null || !target.isOnline()) {
             messages.send(sender, "give-player-not-found", Map.of("player", args[1]));
             return true;
         }
-
         final EntityType mobType = parseMobType(args[2]);
         if (mobType == null) {
             messages.send(sender, "give-invalid-mob", Map.of("mob", args[2]));
             return true;
         }
-
         final int amount;
         try {
             amount = Integer.parseInt(args[3]);
-        } catch (NumberFormatException ignored) {
+        } catch (final NumberFormatException ignored) {
             messages.send(sender, "give-invalid-amount", Map.of("amount", args[3]));
             return true;
         }
-        if (amount < 1) {
+        if (amount < 1 || amount > 1_000_000) {
             messages.send(sender, "give-invalid-amount", Map.of("amount", args[3]));
             return true;
         }
 
-        // WildStacker owns spawner item representation. Use its namespaced command so another
-        // plugin registering the generic "stacker" label cannot intercept the delegation.
         final String wildStackerCommand = "wildstacker:stacker give -s " + target.getName()
             + " spawner " + mobType.name() + " " + amount;
         if (!Bukkit.dispatchCommand(Bukkit.getConsoleSender(), wildStackerCommand)) {
             messages.send(sender, "give-failed");
             return true;
         }
-
         final Map<String, String> placeholders = Map.of(
             "player", target.getName(),
             "mob", formatMobType(mobType),
-            "amount", Integer.toString(amount)
-        );
+            "amount", Integer.toString(amount));
         messages.send(sender, "give-success", placeholders);
         if (sender != target) messages.send(target, "give-received", placeholders);
         return true;
@@ -170,41 +169,42 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
             if (sender.hasPermission("plexonspawners.admin.reload")) values.add("reload");
             return filter(values, args[0]);
         }
-
         if (!args[0].equalsIgnoreCase("give") || !sender.hasPermission("plexonspawners.admin.give")) {
             return List.of();
         }
-
         if (args.length == 2) {
             return filter(Bukkit.getOnlinePlayers().stream().map(Player::getName).sorted().toList(), args[1]);
         }
         if (args.length == 3) {
-            final List<String> mobTypes = Arrays.stream(EntityType.values())
-                .filter(SpawnersCommand::isSpawnerMob)
-                .map(type -> type.name().toLowerCase(Locale.ROOT))
-                .sorted()
-                .toList();
-            return filter(mobTypes, args[2]);
+            return filter(Arrays.stream(EntityType.values()).filter(SpawnersCommand::isSpawnerMob)
+                .map(type -> "minecraft:" + type.name().toLowerCase(Locale.ROOT)).sorted().toList(), args[2]);
         }
-        if (args.length == 4) {
-            return filter(List.of("1", "8", "16", "32", "64"), args[3]);
-        }
+        if (args.length == 4) return filter(List.of("1", "8", "16", "32", "64"), args[3]);
         return List.of();
     }
 
     private static @Nullable EntityType parseMobType(final String raw) {
-        final String normalized = raw.trim().replace('-', '_').toUpperCase(Locale.ROOT);
+        if (raw == null || raw.isBlank()) return null;
+        String value = raw.trim().toLowerCase(Locale.ROOT);
+        if (value.contains(":")) {
+            final String[] namespaced = value.split(":", 2);
+            if (namespaced.length != 2 || !namespaced[0].equals("minecraft") || namespaced[1].isBlank()) return null;
+            value = namespaced[1];
+        }
+        final String normalized = value.replace('-', '_').toUpperCase(Locale.ROOT);
         try {
             final EntityType type = EntityType.valueOf(normalized);
-            return isSpawnerMob(type) ? type : null;
-        } catch (IllegalArgumentException ignored) {
+            return type != EntityType.UNKNOWN && isSpawnerMob(type) ? type : null;
+        } catch (final IllegalArgumentException ignored) {
             return null;
         }
     }
 
     private static boolean isSpawnerMob(final EntityType type) {
         final Class<?> entityClass = type.getEntityClass();
-        return entityClass != null && LivingEntity.class.isAssignableFrom(entityClass);
+        return type != EntityType.UNKNOWN
+            && entityClass != null
+            && LivingEntity.class.isAssignableFrom(entityClass);
     }
 
     private static String formatMobType(final EntityType type) {
@@ -222,11 +222,13 @@ public final class SpawnersCommand implements CommandExecutor, TabCompleter {
         return values.stream().filter(value -> value.toLowerCase(Locale.ROOT).startsWith(prefix)).toList();
     }
 
-    private static String enabled(final boolean enabled) {
-        return enabled ? "enabled" : "disabled";
+    private static String enabled(final boolean enabled) { return enabled ? "enabled" : "disabled"; }
+    private static String safe(final String raw) {
+        return raw == null ? "" : raw.replace("<", "‹").replace(">", "›");
     }
-
-    private static String escape(final String raw) {
-        return raw.replace("<", "\\<").replace(">", "\\>");
+    private static String rootMessage(final Throwable error) {
+        Throwable current = error;
+        while (current.getCause() != null && current.getCause() != current) current = current.getCause();
+        return current.getMessage() == null ? current.getClass().getSimpleName() : current.getMessage();
     }
 }

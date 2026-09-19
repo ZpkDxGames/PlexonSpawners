@@ -10,127 +10,94 @@ import org.junit.jupiter.api.Test;
 
 final class ArchitectureContractTest {
     @Test
-    void wildStackerIsHardDependencyAndPublicApiIsPinned() throws IOException {
-        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
-        final String build = Files.readString(Path.of("build.gradle.kts"));
+    void wildStackerIsHardAuthorityAndCoreIsThinOptionalDependency() throws IOException {
+        final String pluginYml = read("src/main/resources/plugin.yml");
+        final String build = read("build.gradle.kts");
         assertTrue(pluginYml.contains("depend:\n  - WildStacker"));
-        assertFalse(pluginYml.contains("softdepend:"));
+        assertTrue(pluginYml.contains("softdepend:\n  - PlexonCore"));
         assertTrue(build.contains("com.bgsoftware:WildStackerAPI:2026.2"));
-        assertFalse(build.contains("PlexonCore"));
+        assertTrue(build.contains("PlexonCore-2.1.0.jar"));
+        assertTrue(build.contains("7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c"));
+        assertTrue(build.contains("compileOnly(files(coreJar))"));
+        assertTrue(build.contains("PlexonCore runtime classes must not be shaded"));
     }
 
     @Test
-    void directApiBridgeAcceptsTransientSingularObjectsAndHasNoReflectionOrFallbackEngine() throws IOException {
-        final String bridge = Files.readString(Path.of("src/main/java/com/plexon/spawners/integration/WildStackerBridge.java"));
-        assertTrue(bridge.contains("WildStackerAPI.getStackedSpawner"));
-        assertTrue(bridge.contains("getDropItem(amount)"));
-        assertTrue(bridge.contains("authoritative.clone()"));
-        assertTrue(bridge.contains("runUnstack(amount, player)"));
-        assertFalse(bridge.contains("stacked.isCached()"));
-        assertFalse(bridge.contains("Class.forName"));
-        assertFalse(bridge.contains("java.lang.reflect"));
-    }
-
-    @Test
-    void breakListenerCapturesPhysicalIntentAndKeepsWildStackerEventsAuthoritative() throws IOException {
-        final String listener = Files.readString(Path.of("src/main/java/com/plexon/spawners/listener/SpawnerBreakListener.java"));
-        assertTrue(listener.contains("BlockBreakEvent"));
-        assertTrue(listener.contains("EventPriority.LOWEST"));
-        assertTrue(listener.contains("SpawnerUnstackEvent"));
-        assertTrue(listener.contains("SpawnerDropEvent"));
-        assertTrue(listener.contains("event.getAmount()"));
-        assertTrue(listener.contains("snapshotRecovery(stacked, 1)"));
-        assertTrue(listener.contains("BreakReconciliation.confirmedRemovedAmount"));
-        assertTrue(listener.contains("BreakCompletionGate"));
-        assertTrue(listener.contains("wildStacker.resolve(context.location())"));
-        assertFalse(listener.contains("PersistentDataContainer"));
-        assertFalse(listener.contains("getNearbyEntities"));
-        assertFalse(listener.contains("new ItemStack(Material.SPAWNER)"));
-    }
-
-    @Test
-    void adminGiveDelegatesSpawnerItemAuthorityToNamespacedWildStackerCommand() throws IOException {
-        final String command = Files.readString(Path.of("src/main/java/com/plexon/spawners/command/SpawnersCommand.java"));
-        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
-        assertTrue(command.contains("plexonspawners.admin.give"));
-        assertTrue(command.contains("wildstacker:stacker give -s "));
-        assertFalse(command.contains("= \"stacker give -s "));
-        assertTrue(command.contains("spawner \" + mobType.name() + \" \" + amount"));
-        assertFalse(command.contains("new ItemStack"));
-        assertFalse(command.contains("PersistentDataContainer"));
-        assertTrue(pluginYml.contains("plexonspawners.admin.give:"));
-        assertTrue(pluginYml.contains("/pspawners <admin|give|status|reload>"));
-    }
-
-    @Test
-    void creativeDefaultsRecoverSpawnerAndAwardEssence() throws IOException {
-        final String config = Files.readString(Path.of("src/main/resources/config.yml"));
-        final int creative = config.indexOf("  creative:");
-        final int worldScope = config.indexOf("  # Empty means all worlds", creative);
-        assertTrue(creative >= 0 && worldScope > creative);
-        final String creativeBlock = config.substring(creative, worldScope);
-        assertTrue(creativeBlock.contains("recover-spawner: true"));
-        assertTrue(creativeBlock.contains("award-essence: true"));
-    }
-
-    @Test
-    void placedSpawnerInteractionIsLeftToWildStacker() throws IOException {
-        final String pluginSource = Files.readString(Path.of("src/main/java/com/plexon/spawners/PlexonSpawners.java"));
-        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
+    void noDuplicateStackOrPlacedSpawnerInteractionEngineExists() throws IOException {
         final Path sourceRoot = Path.of("src/main/java/com/plexon/spawners");
-
-        assertFalse(pluginSource.contains("SpawnerWithdrawGui"));
-        assertFalse(pluginSource.contains("registerEvents(withdrawGui"));
-        assertFalse(pluginYml.contains("plexonspawners.gui:"));
-        assertFalse(Files.exists(sourceRoot.resolve("gui/SpawnerWithdrawGui.java")));
-        assertFalse(Files.exists(sourceRoot.resolve("gui/SpawnerWithdrawGuiHolder.java")));
-        assertFalse(Files.exists(sourceRoot.resolve("gui/WithdrawalPolicy.java")));
-
+        assertFalse(Files.exists(sourceRoot.resolve("managed")));
+        assertFalse(Files.exists(sourceRoot.resolve("compat")));
         try (var stream = Files.walk(sourceRoot)) {
             for (final Path path : stream.filter(Files::isRegularFile).toList()) {
                 final String source = Files.readString(path);
-                assertFalse(source.contains("PlayerInteractEvent"),
-                    "PlexonSpawners must not own normal placed-spawner interaction: " + path);
-                assertFalse(source.contains("RIGHT_CLICK_BLOCK"),
-                    "PlexonSpawners must not capture normal right-click block interaction: " + path);
+                assertFalse(source.contains("ManagedSpawnerRegistry"), path.toString());
+                assertFalse(source.contains("PlayerInteractEvent"), path.toString());
+                assertFalse(source.contains("RIGHT_CLICK_BLOCK"), path.toString());
+                assertFalse(source.contains("getNearbyEntities"), path.toString());
             }
         }
     }
 
     @Test
-    void administratorGuiRemainsAvailable() throws IOException {
-        final String command = Files.readString(Path.of("src/main/java/com/plexon/spawners/command/SpawnersCommand.java"));
-        final String pluginYml = Files.readString(Path.of("src/main/resources/plugin.yml"));
-        assertTrue(Files.exists(Path.of("src/main/java/com/plexon/spawners/gui/admin/AdminGuiService.java")));
-        assertTrue(command.contains("adminGui.open(player)"));
-        assertTrue(pluginYml.contains("plexonspawners.admin.gui:"));
-        assertTrue(pluginYml.contains("/pspawners <admin|give|status|reload>"));
+    void singularBreakRemediationPreservesTransientWildStackerObjects() throws IOException {
+        final String source = read("src/main/java/com/plexon/spawners/listener/SpawnerBreakListener.java");
+        assertTrue(source.contains("BlockBreakEvent"));
+        assertTrue(source.contains("EventPriority.LOWEST"));
+        assertTrue(source.contains("SpawnerUnstackEvent"));
+        assertTrue(source.contains("SpawnerDropEvent"));
+        assertTrue(source.contains("event.getAmount()"));
+        assertTrue(source.contains("snapshotRecovery(stacked, 1)"));
+        assertTrue(source.contains("BreakReconciliation.confirmedRemovedAmount"));
+        assertTrue(source.contains("BreakCompletionGate"));
+        assertTrue(source.contains("wildStacker.resolve(context.location())"));
+        assertTrue(source.contains("coreBridge.schedulePrimary"));
+        assertFalse(source.contains("stacked.isCached()"));
+        assertFalse(source.contains("PersistentDataContainer"));
     }
 
     @Test
-    void adminConfigDoesNotExposeWildStackerOwnedStackControls() throws IOException {
-        final String config = Files.readString(Path.of("src/main/resources/config.yml"));
-        assertFalse(config.contains("merge-radius:"));
-        assertFalse(config.contains("stack-limit:"));
-        assertFalse(config.contains("redstone-lock:"));
-        assertFalse(config.contains("stack-tier:"));
-        assertTrue(config.contains("admin-gui:"));
-        assertTrue(config.contains("custom-drop:"));
-        assertTrue(config.contains("non-silk-reward-mode:"));
+    void schema12RetiresWithdrawalAndDefaultsToExplicitSurvivalScope() throws IOException {
+        final String config = read("src/main/resources/config.yml");
+        final String messages = read("src/main/resources/messages.yml");
+        assertTrue(config.contains("config-version: 12"));
+        assertTrue(config.contains("mode: ALLOWLIST"));
+        assertTrue(config.contains("- Survival_World"));
+        assertTrue(config.contains("- Survival_World_nether"));
+        assertTrue(config.contains("- Survival_World_the_end"));
+        assertFalse(config.contains("withdraw-presets"));
+        assertFalse(config.contains("open-on-right-click"));
+        assertFalse(messages.contains("withdraw-success"));
+        assertFalse(messages.contains("withdraw-failed"));
     }
 
     @Test
-    void legacyManagedArchitectureIsAbsentFromSourceTree() throws IOException {
-        final Path root = Path.of("src/main/java/com/plexon/spawners");
-        try (var stream = Files.walk(root)) {
-            final var paths = stream.filter(Files::isRegularFile).map(Path::toString).toList();
-            assertFalse(paths.stream().anyMatch(path -> path.contains("/managed/") || path.contains("\\managed\\")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("SpawnerPlaceListener.java")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("SpawnerChunkListener.java")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("PhysicalFallbackBackend.java")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("WildStackerCompat.java")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("RedstoneSpawnerLockService.java")));
-            assertFalse(paths.stream().anyMatch(path -> path.endsWith("SpawnerMigrationService.java")));
-        }
+    void permissionAndGiveAuthorityFailClosed() throws IOException {
+        final String pluginYml = read("src/main/resources/plugin.yml");
+        final String command = read("src/main/java/com/plexon/spawners/command/SpawnersCommand.java");
+        assertTrue(pluginYml.contains("plexonspawners.bypass.silk:"));
+        assertTrue(pluginYml.contains("default: false"));
+        assertTrue(command.contains("wildstacker:stacker give -s "));
+        assertFalse(command.contains("new ItemStack(Material.SPAWNER)"));
+        assertTrue(command.contains("minecraft:"));
+        assertTrue(command.contains("type != EntityType.UNKNOWN"));
+    }
+
+    @Test
+    void policyApiAndEventsContainNoStackMutationAuthority() throws IOException {
+        final String api = read("src/main/java/com/plexon/spawners/api/PlexonSpawnersApi.java");
+        assertTrue(api.contains("boolean isWorldEnabled"));
+        assertTrue(api.contains("BreakPolicyView policy"));
+        assertTrue(api.contains("IntegrationStatus integration"));
+        assertFalse(api.contains("setStack"));
+        assertFalse(api.contains("merge("));
+        assertFalse(api.contains("unstack("));
+        assertFalse(api.contains("place("));
+        assertTrue(Files.exists(Path.of("src/main/java/com/plexon/spawners/event/PlexonSpawnerRecoveredEvent.java")));
+        assertTrue(Files.exists(Path.of("src/main/java/com/plexon/spawners/event/PlexonSpawnerRewardFinalizedEvent.java")));
+        assertTrue(Files.exists(Path.of("src/main/java/com/plexon/spawners/event/PlexonSpawnerBreakFinalizedEvent.java")));
+    }
+
+    private static String read(final String path) throws IOException {
+        return Files.readString(Path.of(path));
     }
 }

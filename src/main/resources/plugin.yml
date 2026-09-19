@@ -3,11 +3,13 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: WildStacker-authoritative spawner recovery, rewards and administration for PlexonCraft.
+description: WildStacker-authoritative spawner recovery, rewards, policy API and administration for PlexonCraft.
 prefix: PlexonSpawners
 
 depend:
   - WildStacker
+softdepend:
+  - PlexonCore
 
 commands:
   pspawners:
@@ -34,8 +36,8 @@ permissions:
     description: Reload PlexonSpawners policy configuration.
     default: op
   plexonspawners.admin.status:
-    description: View PlexonSpawners and WildStacker integration status.
+    description: View PlexonSpawners and WildStacker/Core integration status.
     default: op
   plexonspawners.bypass.silk:
-    description: Bypass the configured Silk Touch level when the bypass setting is enabled.
-    default: op
+    description: Bypass configured Silk Touch only when breaking.allow-silk-bypass-permission is enabled.
+    default: false

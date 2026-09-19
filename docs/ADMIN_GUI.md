@@ -2,77 +2,115 @@
 
 ## Entry point
 
-```text
 /pspawners admin
-```
 
-Permission: `plexonspawners.admin.gui` (default `op`). The GUI requires a player; console may still use `/pspawners status` and `/pspawners reload`.
+Permission: plexonspawners.admin.gui.
 
-## Authority boundary
+The GUI configures only Plexon-owned recovery/reward policy. It does not control WildStacker stack
+amounts, placement, merge, item representation, limits, tiers/upgrades or normal placed-spawner
+interaction.
 
-The administrator GUI configures **PlexonSpawners-owned policy only**. It does not own normal placed-spawner interaction, placed stack quantities, merging, WildStacker limits/radius, linked entities, tiers/upgrades, spawner item representation or WildStacker persistence.
+## Session authority
 
-WildStacker remains the source of truth for all stack state and for its native spawner interaction/tier-upgrade GUI.
+Each administrator gets an isolated draft bound to:
 
-PlexonSpawners no longer registers a player-facing right-click withdrawal GUI. Existing schema-11 withdrawal keys are compatibility residue only and must not be treated as a supported player interaction surface.
+- config revision;
+- runtime generation;
+- exact player UUID.
 
-## Draft sessions
+Closing/discarding without Save changes neither disk nor live runtime.
 
-Each administrator receives an isolated draft loaded from the live configuration revision. GUI clicks mutate only that draft. Closing/discarding without Save does not change disk or runtime policy.
+Any newer successful Save/reload makes older sessions stale. Stale drafts cannot overwrite the new
+generation.
 
-Every successful GUI Save or `/pspawners reload` advances an in-memory revision. If an older admin session tries to save after the revision advanced, the save is rejected as stale and cannot silently overwrite the newer configuration.
+## Click safety
 
-## Supported policy areas
+The top inventory is owned by a typed AdminGuiHolder. Managed interaction is cancelled.
 
-- **Status / Integration** — WildStacker version, authority, config schema/revision, dirty state and validation.
-- **Break Policy** — policy enabled, Silk level, bypass permission, non-Silk mode, Creative recovery/Essence/custom reward flags.
-- **Essence** — enabled, amount, chance, delivery, preview, sanitized held-item template/reset.
-- **Custom Drop** — enabled, amount, chance, delivery, preview, sanitized held-item template/reset.
-- **Mob Overrides** — paginated spawnable-mob selector, inherited/overridden state, per-mob mode and amounts/chances, confirmed reset to inheritance.
-- **Worlds** — all-worlds vs allowlist, loaded worlds and retained offline configured names.
-- **Messages** — supported break/reward feedback toggles.
-- **Save / Discard / Reload** — explicit confirmation flows.
+Only LEFT, RIGHT, SHIFT_LEFT and SHIFT_RIGHT are accepted. Number-key swaps, offhand swaps, drops,
+middle-click, double-click and other unapproved ClickTypes are ignored.
 
-Any legacy withdrawal draft fields retained for schema-11 compatibility are non-authoritative and have no player placed-spawner runtime entrypoint.
+Semantic actions are deferred one tick and revalidate:
 
-## Save pipeline
+- player online state;
+- permission;
+- exact holder/session identity;
+- config revision;
+- runtime generation.
 
-A confirmed Save:
+No filesystem operation runs from the click handler.
 
-1. validates the complete draft;
-2. rejects stale sessions;
-3. creates `plugins/PlexonSpawners/config-backups/config-<timestamp>.yml`;
-4. serializes the intended PlexonSpawners configuration;
-5. writes a temporary file in the plugin directory;
-6. atomically replaces `config.yml` where the filesystem supports it, with safe replace fallback;
-7. reloads runtime settings/services;
-8. advances the configuration revision;
-9. retains the newest configured number of normal admin backups.
+## Policy screens
 
-The special pre-4.0 migration backup is outside this retention directory and is not removed by normal admin-backup pruning.
+- Status / Integration
+- Break Policy
+- Essence
+- Custom Drop
+- Mob Overrides
+- World Scope
+- Messages
+- Save / Discard / Reload
 
-## Reward modes
+There is no player withdrawal GUI and no withdrawal editor.
 
-```text
-ESSENCE
-CUSTOM_ITEM
-ESSENCE_AND_CUSTOM_ITEM
-NONE
-```
+## Exact item capture
 
-A qualifying Silk break remains a separate recovery path and uses WildStacker's authoritative spawner item. Non-Silk reward modes never redefine a recovered spawner item.
+Capture Exact Held Item normalizes template amount to one and stores Paper's exact serialized bytes.
 
-For each reward scheme, chance rolls once per exact logical spawner removed by WildStacker. Combined mode performs independent Essence and custom-item rolls. Successful rewards are aggregated and split only when required by legal item stack sizes.
+The exact template preserves supported item metadata/components including foreign PDC, enchantments,
+attributes, damage, potion state and item model.
 
-## Final focused runtime acceptance
+PlexonSpawners identity is added later to a clone; foreign PDC is not erased.
 
-Before stable release, verify the exact final CI-built JAR:
+## Save transaction
 
-- right-clicking a WildStacker-managed spawner does not open a Plexon withdrawal GUI or consume the interaction;
-- WildStacker's native expected spawner tier/upgrade interaction works;
-- authorized player opens `/pspawners admin`; unauthorized player cannot;
-- `/pspawners give <online-player> zombie 2` (or equivalent) still delivers WildStacker-compatible spawners;
-- one representative break/reward case still uses WildStacker logical quantity correctly;
-- no Plexon native stack state returns.
+Confirmed Save performs:
 
-Do not infer runtime PASS from unit tests or GitHub Actions.
+Primary thread:
+1. permission/session/revision/generation validation;
+2. complete draft validation;
+3. immutable draft capture;
+4. SAVE_PENDING single-flight state.
+
+Bounded I/O:
+5. timestamped backup;
+6. candidate serialization;
+7. same-directory temporary write;
+8. atomic replace where supported.
+
+Primary thread:
+9. revalidate generation/revision;
+10. prepare validated runtime snapshot;
+11. commit snapshot;
+12. bump revision;
+13. refresh GUI/result.
+
+Bounded I/O:
+14. prune old normal admin backups.
+
+If runtime commit is rejected after replacement, disk is restored from the pre-save backup and revision
+does not advance. The previous runtime generation remains authoritative.
+
+Only one configuration save transaction may be in flight.
+
+## Reload
+
+/pspawners reload loads config/messages on bounded I/O, prepares a complete runtime snapshot and commits
+it on the primary thread only after all validation succeeds.
+
+Invalid config/exact-item/MiniMessage data leaves the previous known-good generation active.
+
+## Acceptance
+
+The exact final candidate must prove:
+
+- unauthorized access rejected;
+- unsafe ClickTypes cannot move items or trigger actions;
+- draft isolation/discard;
+- competing-admin stale rejection;
+- save backup/write off main thread;
+- one generation/revision advance per successful save;
+- malformed exact item rollback;
+- disk failure rollback;
+- close without save unchanged;
+- no noticeable save-related tick stall.

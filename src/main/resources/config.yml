@@ -1,24 +1,26 @@
 # PlexonSpawners 4.0 — WildStacker-authoritative policy layer
-# WildStacker owns all stacking, stack persistence, placement, merge behavior,
-# stack limits, entity stacking, item stacking, spawner item representation and runtime stack state.
-config-version: 11
+# WildStacker owns spawner quantities, persistence, placement, merging, unstacking,
+# stack limits, spawner items, tiers/upgrades and normal placed-spawner interaction.
+config-version: 12
+
+# Fresh installations are explicitly Survival-scoped. Existing schema-11 configs with an empty
+# legacy allowlist migrate to scope.mode=ALL to preserve behavior without silently changing scope.
+scope:
+  mode: ALLOWLIST
+  worlds:
+    - Survival_World
+    - Survival_World_nether
+    - Survival_World_the_end
 
 breaking:
   enabled: true
   required-silk-touch-level: 1
   allow-silk-bypass-permission: false
   non-silk-reward-mode: ESSENCE
-
-  # Creative breaks intentionally recover the WildStacker-authoritative spawner item
-  # and may also grant PlexonSpawners rewards. Existing schema-11 configs must opt in
-  # explicitly because config-version is unchanged for this runtime correction.
   creative:
     recover-spawner: true
     award-essence: true
     award-custom-item: false
-
-  # Empty means all worlds. Non-empty values form an allowlist.
-  enabled-worlds: []
 
 essence:
   enabled: true
@@ -26,6 +28,7 @@ essence:
   default-chance: 35.0
   delivery: INVENTORY
   item:
+    # When an exact item is captured, exact-data (Paper serializeAsBytes Base64) becomes authoritative.
     material: AMETHYST_SHARD
     name: '<gradient:#56B9F2:#92E1FF><b>Spawner Essence</b></gradient>'
     lore:
@@ -46,27 +49,11 @@ custom-drop:
       - '<gray>Dropped when a spawner is broken without Silk Touch.</gray>'
       - '<dark_gray>Configurable PlexonSpawners reward.</dark_gray>'
     glow: true
-    # Paper 26.2 modern custom model reference, e.g. plexon:spawner_fragment.
     item-model: null
   mob-overrides: {}
 
-# Optional per-mob reward-mode overrides. Essence/custom amount and chance overrides
-# remain in their respective sections to preserve the 4.0 configuration lineage.
 rewards:
   mob-overrides: {}
-
-# Legacy schema-11 compatibility keys only. PlexonSpawners does not register a
-# player right-click/withdrawal GUI in 4.0; WildStacker owns placed-spawner interaction.
-gui:
-  enabled: true
-  open-on-right-click: true
-  title: '<gradient:#56B9F2:#92E1FF><b>Spawner Withdrawal</b></gradient>'
-  withdraw-presets:
-    - 1
-    - 8
-    - 16
-    - 32
-    - 64
 
 admin-gui:
   enabled: true
@@ -77,5 +64,3 @@ messages:
   silk-recovered: true
   essence-awarded: true
   custom-drop-awarded: true
-  withdraw-success: true
-  withdraw-failed: true

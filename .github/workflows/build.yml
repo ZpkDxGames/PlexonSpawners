@@ -16,11 +16,13 @@ env:
   BASELINE_STABLE_SHA: 'cd9966c79add8c98dcdb389d2fc722ce66d795ec'
   BASELINE_STABLE_JAR_SHA256: '6fd9b6119371820173307853a7b58243ebf1f28e083212dcc6287c01d68f3c58'
   WILDSTACKER_API_VERSION: '2026.2'
+  PLEXONCORE_VERSION: '2.1.0'
+  PLEXONCORE_SHA256: '7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c'
 
 jobs:
   verify:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Checkout exact source
         uses: actions/checkout@v5
@@ -38,7 +40,7 @@ jobs:
         with:
           gradle-version: '9.7.1'
 
-      - name: Verify release lineage and source boundary
+      - name: Verify release lineage and source authority boundary
         shell: bash
         run: |
           set -euo pipefail
@@ -46,15 +48,24 @@ jobs:
           test "$VERSION" = '4.0.0'
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
           grep -Fq "WildStackerAPI:$WILDSTACKER_API_VERSION" build.gradle.kts
+          grep -Fq "PlexonCore-$PLEXONCORE_VERSION.jar" build.gradle.kts
+          grep -Fq "$PLEXONCORE_SHA256" build.gradle.kts
+          grep -Fq $'depend:\n  - WildStacker' src/main/resources/plugin.yml
+          grep -Fq $'softdepend:\n  - PlexonCore' src/main/resources/plugin.yml
           test ! -d src/main/java/com/plexon/spawners/managed
           test ! -d src/main/java/com/plexon/spawners/compat
-          ! grep -R "Class.forName\|java.lang.reflect" src/main/java/com/plexon/spawners
+          ! grep -R "ManagedSpawnerRegistry\|PlayerInteractEvent\|RIGHT_CLICK_BLOCK" src/main/java/com/plexon/spawners
+          grep -Fq 'config-version: 12' src/main/resources/config.yml
+          ! grep -R "withdraw-presets\|open-on-right-click" src/main/resources
+          grep -A3 'plexonspawners.bypass.silk:' src/main/resources/plugin.yml | grep -Fq 'default: false'
+          git diff --check
+          python3 -m py_compile tools/legacy_managed_inventory.py
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
 
       - name: Full source verification
-        run: gradle clean test check jar --no-daemon
+        run: gradle clean test check jar --no-daemon --stacktrace
 
-      - name: Build test and distribution evidence
+      - name: Build candidate evidence
         shell: bash
         run: |
           set -euo pipefail
@@ -72,14 +83,51 @@ jobs:
           if totals['tests'] <= 0 or totals['failures'] or totals['errors']:
               raise SystemExit(f'Unclean tests: {totals}')
           with open('build/release-evidence/TEST_SUMMARY.txt', 'w', encoding='utf-8') as out:
-              for key, value in totals.items(): out.write(f'{key}={value}\n')
+              for key, value in totals.items():
+                  out.write(f'{key}={value}\n')
           PY
+
           JAR="build/libs/PlexonSpawners-${VERSION}.jar"
           test -s "$JAR"
           jar tf "$JAR" > build/release-evidence/jar-contents.txt
-          ! grep -E 'com/plexon/spawners/(managed|compat|api|integration/core)/' build/release-evidence/jar-contents.txt
+          ! grep -E '^com/plexon/spawners/(managed|compat)/' build/release-evidence/jar-contents.txt
           ! grep -E '^com/bgsoftware/wildstacker/' build/release-evidence/jar-contents.txt
+          ! grep -E '^com/zpkdxgames/plexoncore/' build/release-evidence/jar-contents.txt
+          ! grep -E '^(io/papermc|org/bukkit)/' build/release-evidence/jar-contents.txt
+          grep -Fq 'com/plexon/spawners/api/PlexonSpawnersApi.class' build/release-evidence/jar-contents.txt
+          grep -Fq 'com/plexon/spawners/integration/core/CoreBridge.class' build/release-evidence/jar-contents.txt
+          grep -Fq 'com/plexon/spawners/runtime/SpawnerRuntimeSnapshot.class' build/release-evidence/jar-contents.txt
+          unzip -p "$JAR" plugin.yml | grep -Fq "version: '${VERSION}'"
+          javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -Fq 'major version: 69'
+
+          JAR_SIZE="$(stat -c%s "$JAR")"
+          JAR_SHA="$(sha256sum "$JAR" | awk '{print $1}')"
           sha256sum "$JAR" | tee build/release-evidence/SHA256SUMS.txt
+          cat > build/release-evidence/PROVENANCE_CANDIDATE.txt <<EOF
+          repository=$GITHUB_REPOSITORY
+          version=$VERSION
+          source_sha=$GITHUB_SHA
+          java=25
+          java_class_major=69
+          paper=26.2.build.121-stable
+          wildstacker_api=$WILDSTACKER_API_VERSION
+          plexoncore=$PLEXONCORE_VERSION
+          plexoncore_sha256=$PLEXONCORE_SHA256
+          wildstacker_hard_dependency=PASS
+          wildstacker_stack_item_upgrade_authority=PASS
+          plexon_native_stacking_absent=PASS
+          withdrawal_gui_absent=PASS
+          schema12=PASS
+          exact_item_serialization_contract=PASS
+          thin_policy_api_events=PASS
+          candidate_runtime_certification=PENDING
+          migration=PENDING
+          jar_size=$JAR_SIZE
+          jar_sha256=$JAR_SHA
+          baseline_tag=$BASELINE_STABLE_TAG
+          baseline_sha=$BASELINE_STABLE_SHA
+          baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
+          EOF
 
       - name: Upload candidate evidence
         uses: actions/upload-artifact@v4
@@ -90,4 +138,5 @@ jobs:
             build/libs/PlexonSpawners-${{ env.VERSION }}.jar
             build/release-evidence/TEST_SUMMARY.txt
             build/release-evidence/SHA256SUMS.txt
+            build/release-evidence/PROVENANCE_CANDIDATE.txt
             build/release-evidence/jar-contents.txt
