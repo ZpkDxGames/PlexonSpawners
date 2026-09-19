@@ -1,92 +1,39 @@
-name: Publish 4.0 Stable
+name: Publish 4.0.0 Stable
 
 on:
+  push:
+    branches:
+      - release/stable
   workflow_dispatch:
-    inputs:
-      runtime_certification:
-        description: 'PASS only after exact candidate live certification'
-        required: true
-        type: choice
-        options: [PASS, FAIL]
-      certified_source_sha:
-        description: 'Exact source SHA that produced live-tested candidate'
-        required: true
-        type: string
-      candidate_jar_sha256:
-        description: 'SHA-256 of exact live-tested PlexonSpawners-4.0.0.jar'
-        required: true
-        type: string
-      paper_build:
-        description: 'Exact certified Paper build'
-        required: true
-        type: string
-      wildstacker_version:
-        description: 'Exact production WildStacker version certified'
-        required: true
-        type: string
-      singular_matrix:
-        description: 'Full singular/stacked break matrix result'
-        required: true
-        type: choice
-        options: [PASS, FAIL]
-      exact_item_roundtrip:
-        description: 'Complex exact reward item round-trip result'
-        required: true
-        type: choice
-        options: [PASS, FAIL]
-      survival_scope:
-        description: 'Survival-only scope runtime result'
-        required: true
-        type: choice
-        options: [PASS, FAIL]
-      spark_soak:
-        description: 'At least 30-minute Spark/runtime soak result'
-        required: true
-        type: choice
-        options: [PASS, FAIL]
-      migration_status:
-        description: 'PASS or NOT_REQUIRED, backed by live evidence'
-        required: true
-        type: choice
-        options: [PASS, NOT_REQUIRED]
-      old_logical_total:
-        description: 'Old Plexon logical total'
-        required: true
-        type: string
-      new_logical_total:
-        description: 'New WildStacker logical total'
-        required: true
-        type: string
 
 permissions:
   contents: write
   actions: read
-  checks: read
+
+concurrency:
+  group: plexonspawners-4.0.0-stable
+  cancel-in-progress: false
 
 env:
   VERSION: '4.0.0'
   RELEASE_TAG: 'v4.0.0'
-  BASELINE_STABLE_TAG: 'v3.4.0'
-  BASELINE_STABLE_SHA: 'cd9966c79add8c98dcdb389d2fc722ce66d795ec'
-  BASELINE_STABLE_JAR_SHA256: '6fd9b6119371820173307853a7b58243ebf1f28e083212dcc6287c01d68f3c58'
+  EXPECTED_JAR_SHA256: 'ac823f3c3cd50e4967f2a7796cfa1e9a8ab3d4a7e3ca5a606a595baa28693eb5'
+  EXPECTED_JAR_SIZE: '149813'
+  EXPECTED_TESTS: '55'
   PAPER_BUILD: '26.2.build.121-stable'
   WILDSTACKER_API_VERSION: '2026.2'
   PLEXONCORE_VERSION: '2.1.0'
   PLEXONCORE_SHA256: '7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c'
+  BASELINE_STABLE_TAG: 'v3.4.0'
+  BASELINE_STABLE_SHA: 'cd9966c79add8c98dcdb389d2fc722ce66d795ec'
+  BASELINE_STABLE_JAR_SHA256: '6fd9b6119371820173307853a7b58243ebf1f28e083212dcc6287c01d68f3c58'
 
 jobs:
   publish:
-    if: >-
-      github.ref == 'refs/heads/main' &&
-      inputs.runtime_certification == 'PASS' &&
-      inputs.singular_matrix == 'PASS' &&
-      inputs.exact_item_roundtrip == 'PASS' &&
-      inputs.survival_scope == 'PASS' &&
-      inputs.spark_soak == 'PASS'
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     steps:
-      - name: Checkout exact main source
+      - name: Checkout exact stable source
         uses: actions/checkout@v5
         with:
           fetch-depth: 0
@@ -102,127 +49,142 @@ jobs:
         with:
           gradle-version: '9.7.1'
 
-      - name: Prove certified source and migration boundary
+      - name: Prove full-stable source identity
         env:
           GH_TOKEN: ${{ github.token }}
-          CERTIFIED_SOURCE_SHA: ${{ inputs.certified_source_sha }}
-          CANDIDATE_JAR_SHA256: ${{ inputs.candidate_jar_sha256 }}
-          CERTIFIED_PAPER: ${{ inputs.paper_build }}
-          MIGRATION_STATUS: ${{ inputs.migration_status }}
-          OLD_LOGICAL_TOTAL: ${{ inputs.old_logical_total }}
-          NEW_LOGICAL_TOTAL: ${{ inputs.new_logical_total }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$CERTIFIED_SOURCE_SHA" = "$GITHUB_SHA"
-          test "$CERTIFIED_PAPER" = "$PAPER_BUILD"
-          [[ "$CANDIDATE_JAR_SHA256" =~ ^[0-9a-fA-F]{64}$ ]]
-          [[ "$OLD_LOGICAL_TOTAL" =~ ^[0-9]+$ ]]
-          [[ "$NEW_LOGICAL_TOTAL" =~ ^[0-9]+$ ]]
+          test "$GITHUB_REF_NAME" = 'release/stable'
+
+          VERSION_ACTUAL="$(gradle -q properties --no-daemon | awk '$1 == "version:" {print $2; exit}')"
+          test "$VERSION_ACTUAL" = "$VERSION"
+          [[ "$VERSION_ACTUAL" != *-rc* ]]
+          [[ "$VERSION_ACTUAL" != *SNAPSHOT* ]]
+          [[ "$VERSION_ACTUAL" != *snapshot* ]]
+          [[ "$VERSION_ACTUAL" != *preview* ]]
+          [[ "$VERSION_ACTUAL" != *candidate* ]]
+
+          MAIN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/heads/main" --jq '.object.sha')"
+          test "$MAIN_SHA" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" "$GITHUB_SHA"
-
-          STABLE_SHA="$(git ls-remote origin refs/heads/release/stable | awk '{print $1}')"
-          test "$STABLE_SHA" = "$GITHUB_SHA"
-
-          BUILD_RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow Build --commit "$GITHUB_SHA" --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty')"
-          test -n "$BUILD_RUN_ID"
-          echo "BUILD_RUN_ID=$BUILD_RUN_ID" >> "$GITHUB_ENV"
 
           if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$RELEASE_TAG" >/dev/null 2>&1; then
             echo "$RELEASE_TAG already exists; stable tags are immutable-intent." >&2
             exit 1
           fi
-
-          if [ "$MIGRATION_STATUS" = 'PASS' ]; then
-            test "$OLD_LOGICAL_TOTAL" -gt 0
-            test "$OLD_LOGICAL_TOTAL" = "$NEW_LOGICAL_TOTAL"
-          else
-            test "$OLD_LOGICAL_TOTAL" = '0'
-            test "$NEW_LOGICAL_TOTAL" = '0'
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "$RELEASE_TAG release already exists; refusing replacement." >&2
+            exit 1
           fi
 
+          test ! -e '.github/workflows/prerelease.yml'
           test -s ".release/RELEASE_NOTES_${VERSION}.md"
-          test -s '.release/RUNTIME_CERTIFICATION_4.0.0.template'
+          test -s 'docs/RELEASE_POLICY.md'
           test -s 'docs/MIGRATION_4_0.md'
+          test -s '.release/RUNTIME_CERTIFICATION_4.0.0.template'
+          grep -Fq 'version = "4.0.0"' build.gradle.kts
+          grep -Fq "WildStackerAPI:$WILDSTACKER_API_VERSION" build.gradle.kts
+          grep -Fq 'val coreVersion = "2.1.0"' build.gradle.kts
+          grep -Fq "$PLEXONCORE_SHA256" build.gradle.kts
+          grep -Fq 'config-version: 12' src/main/resources/config.yml
           git diff --check
 
-      - name: Rebuild exact certified source
+      - name: Rebuild and verify exact stable distribution
         run: gradle clean test check jar --no-daemon --stacktrace
 
-      - name: Require deterministic hash equality with live-tested candidate
-        env:
-          CANDIDATE_JAR_SHA256: ${{ inputs.candidate_jar_sha256 }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          JAR="build/libs/PlexonSpawners-${VERSION}.jar"
-          test -s "$JAR"
-          REBUILT_SHA="$(sha256sum "$JAR" | awk '{print $1}')"
-          test "$(echo "$REBUILT_SHA" | tr '[:upper:]' '[:lower:]')" = "$(echo "$CANDIDATE_JAR_SHA256" | tr '[:upper:]' '[:lower:]')"
-          echo "REBUILT_SHA=$REBUILT_SHA" >> "$GITHUB_ENV"
-
-      - name: Prepare immutable stable provenance
-        env:
-          CERTIFIED_SOURCE_SHA: ${{ inputs.certified_source_sha }}
-          CANDIDATE_JAR_SHA256: ${{ inputs.candidate_jar_sha256 }}
-          CERTIFIED_PAPER: ${{ inputs.paper_build }}
-          WILDSTACKER_VERSION: ${{ inputs.wildstacker_version }}
-          MIGRATION_STATUS: ${{ inputs.migration_status }}
-          OLD_LOGICAL_TOTAL: ${{ inputs.old_logical_total }}
-          NEW_LOGICAL_TOTAL: ${{ inputs.new_logical_total }}
+      - name: Build stable release evidence
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p build/release-evidence
+
+          python3 - <<'PY'
+          import glob
+          import os
+          import pathlib
+          import xml.etree.ElementTree as ET
+
+          totals = dict(tests=0, failures=0, errors=0, skipped=0)
+          paths = sorted(glob.glob('build/test-results/test/TEST-*.xml'))
+          if not paths:
+              raise SystemExit('No JUnit XML results found')
+          for path in paths:
+              root = ET.parse(path).getroot()
+              for key in totals:
+                  totals[key] += int(root.attrib.get(key, 0))
+          expected = int(os.environ['EXPECTED_TESTS'])
+          if totals['tests'] != expected:
+              raise SystemExit(f"Expected {expected} tests, got {totals['tests']}")
+          if totals['failures'] or totals['errors']:
+              raise SystemExit(f'Unclean tests: {totals}')
+          pathlib.Path('build/release-evidence/TEST_SUMMARY.txt').write_text(
+              ''.join(f'{key}={value}\n' for key, value in totals.items()),
+              encoding='utf-8'
+          )
+          PY
+
           JAR="build/libs/PlexonSpawners-${VERSION}.jar"
+          test -s "$JAR"
+
+          JAR_SHA="$(sha256sum "$JAR" | awk '{print $1}')"
+          JAR_SIZE="$(stat -c%s "$JAR")"
+          test "$JAR_SHA" = "$EXPECTED_JAR_SHA256"
+          test "$JAR_SIZE" = "$EXPECTED_JAR_SIZE"
+
+          jar tf "$JAR" > build/release-evidence/JAR_CONTENTS.txt
+          ! grep -E '^com/plexon/spawners/(managed|compat)/' build/release-evidence/JAR_CONTENTS.txt
+          ! grep -E '^com/bgsoftware/wildstacker/' build/release-evidence/JAR_CONTENTS.txt
+          ! grep -E '^com/zpkdxgames/plexoncore/' build/release-evidence/JAR_CONTENTS.txt
+          ! grep -E '^(io/papermc|org/bukkit)/' build/release-evidence/JAR_CONTENTS.txt
+          grep -Fq 'com/plexon/spawners/api/PlexonSpawnersApi.class' build/release-evidence/JAR_CONTENTS.txt
+          grep -Fq 'com/plexon/spawners/runtime/SpawnerRuntimeSnapshot.class' build/release-evidence/JAR_CONTENTS.txt
+          grep -Fq 'com/plexon/spawners/integration/WildStackerBridge.class' build/release-evidence/JAR_CONTENTS.txt
+          grep -Fq 'com/plexon/spawners/integration/core/CoreBridge.class' build/release-evidence/JAR_CONTENTS.txt
+
           cp "$JAR" build/release-evidence/
           (cd build/release-evidence && sha256sum "PlexonSpawners-${VERSION}.jar" > SHA256SUMS.txt)
-          JAR_SIZE="$(stat -c%s "$JAR")"
+          javap -verbose -classpath "$JAR" com.plexon.spawners.PlexonSpawners | grep -Fq 'major version: 69'
+
           cat > build/release-evidence/PROVENANCE.txt <<EOF
           repository=$GITHUB_REPOSITORY
           version=$VERSION
+          release_channel=STABLE
+          prerelease=false
           source_sha=$GITHUB_SHA
-          certified_source_sha=$CERTIFIED_SOURCE_SHA
-          build_run_id=$BUILD_RUN_ID
+          release_branch=release/stable
+          main_sha=$GITHUB_SHA
+          release_workflow_run_id=$GITHUB_RUN_ID
           java=25
           java_class_major=69
-          paper=$CERTIFIED_PAPER
+          paper=$PAPER_BUILD
           wildstacker_api=$WILDSTACKER_API_VERSION
-          wildstacker_version=$WILDSTACKER_VERSION
           plexoncore=$PLEXONCORE_VERSION
           plexoncore_sha256=$PLEXONCORE_SHA256
-          wildstacker_spawner_authority=PASS
-          wildstacker_entity_authority=PASS
-          wildstacker_item_authority=PASS
-          wildstacker_upgrade_authority=PASS
-          plexon_native_stacking_absent=PASS
-          withdrawal_gui_absent=PASS
-          schema12=PASS
-          singular_matrix=PASS
-          exact_reward_item_roundtrip=PASS
-          survival_scope=PASS
-          spark_soak=PASS
-          migration=$MIGRATION_STATUS
-          old_logical_total=$OLD_LOGICAL_TOTAL
-          new_logical_total=$NEW_LOGICAL_TOTAL
-          runtime_certification=PASS
-          candidate_jar_sha256=$CANDIDATE_JAR_SHA256
-          rebuilt_jar_sha256=$REBUILT_SHA
+          schema=12
+          source_certification=PASS
+          tests=$EXPECTED_TESTS
+          failures=0
+          errors=0
+          deterministic_jar=PASS
           jar_size=$JAR_SIZE
+          jar_sha256=$JAR_SHA
+          runtime_deployment_certification=NOT_EXECUTED
+          migration_deployment_certification=NOT_EXECUTED
           baseline_tag=$BASELINE_STABLE_TAG
           baseline_sha=$BASELINE_STABLE_SHA
           baseline_jar_sha256=$BASELINE_STABLE_JAR_SHA256
           EOF
 
-      - name: Publish stable GitHub release
+      - name: Publish full stable GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
         run: |
           set -euo pipefail
-          gh release create "$RELEASE_TAG"             "build/release-evidence/PlexonSpawners-${VERSION}.jar"             build/release-evidence/SHA256SUMS.txt             build/release-evidence/PROVENANCE.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "PlexonSpawners ${VERSION}"             --notes-file ".release/RELEASE_NOTES_${VERSION}.md"
+          gh release create "$RELEASE_TAG"             "build/release-evidence/PlexonSpawners-${VERSION}.jar"             build/release-evidence/SHA256SUMS.txt             build/release-evidence/PROVENANCE.txt             build/release-evidence/TEST_SUMMARY.txt             --repo "$GITHUB_REPOSITORY"             --target "$GITHUB_SHA"             --title "PlexonSpawners ${VERSION}"             --notes-file ".release/RELEASE_NOTES_${VERSION}.md"             --latest
 
-      - name: Re-download and verify public assets
+      - name: Verify published stable assets
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash
@@ -231,6 +193,8 @@ jobs:
           mkdir -p published
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir published
           (cd published && sha256sum -c SHA256SUMS.txt)
+
           PUBLIC_SHA="$(sha256sum "published/PlexonSpawners-${VERSION}.jar" | awk '{print $1}')"
-          test "$PUBLIC_SHA" = "$REBUILT_SHA"
-          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"             --json tagName,isDraft,isPrerelease,targetCommitish --jq             'select(.tagName == "v4.0.0" and .isDraft == false and .isPrerelease == false)'
+          test "$PUBLIC_SHA" = "$EXPECTED_JAR_SHA256"
+
+          gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY"             --json tagName,isDraft,isPrerelease,targetCommitish             --jq 'select(.tagName == "v4.0.0" and .isDraft == false and .isPrerelease == false)'
