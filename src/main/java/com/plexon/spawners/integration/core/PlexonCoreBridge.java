@@ -6,23 +6,24 @@ import com.zpkdxgames.plexoncore.module.ModuleRegistry;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleDescriptor;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleState;
 import com.zpkdxgames.plexoncore.module.ModuleRegistry.ModuleVersionRange;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Supplier;
 import org.bukkit.Bukkit;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
-public final class PlexonCoreBridge implements CoreBridge {
+final class PlexonCoreBridge implements CoreBridge {
     private static final Set<String> CAPABILITIES = Set.of(
-        "spawner-engine",
-        "managed-spawner-items",
-        "spawner-essence",
-        "spawner-api",
-        "spawner-recovered-event",
-        "spawner-placed-event",
-        "essence-awarded-event",
-        "wildstacker-compat",
-        "stateless-runtime"
+        "wildstacker-authoritative",
+        "spawner-break-policy",
+        "spawner-reward-policy",
+        "exact-reward-items",
+        "admin-policy-gui",
+        "policy-api",
+        "post-commit-events"
     );
 
     private final JavaPlugin plugin;
@@ -33,16 +34,14 @@ public final class PlexonCoreBridge implements CoreBridge {
     private String registrationState = "NOT_REGISTERED";
     private String detail = "PlexonCore API resolved";
 
-    public PlexonCoreBridge(JavaPlugin plugin) {
+    PlexonCoreBridge(final JavaPlugin plugin) {
         this.plugin = plugin;
-        RegisteredServiceProvider<PlexonCoreAPI> registration =
+        final RegisteredServiceProvider<PlexonCoreAPI> registration =
             Bukkit.getServicesManager().getRegistration(PlexonCoreAPI.class);
-        if (registration == null) {
-            throw new IllegalStateException("PlexonCore API service is not registered");
-        }
-        this.core = registration.getProvider();
-        this.version = core.version();
-        this.compatible = ModuleVersionRange.parse(SUPPORTED_API_RANGE).contains(version);
+        if (registration == null) throw new IllegalStateException("PlexonCore API service is not registered");
+        core = registration.getProvider();
+        version = core.version();
+        compatible = ModuleVersionRange.parse(SUPPORTED_API_RANGE).contains(version);
         if (!compatible) {
             registrationState = "INCOMPATIBLE";
             detail = "Core API " + version.apiVersion() + " is outside supported range " + SUPPORTED_API_RANGE;
@@ -54,33 +53,14 @@ public final class PlexonCoreBridge implements CoreBridge {
     @Override public boolean compatible() { return compatible; }
     @Override public String pluginVersion() { return version.pluginVersion(); }
     @Override public String apiVersion() { return version.apiVersion(); }
-    @Override public String mode() { return compatible && ownsRegistration ? "CORE" : "STANDALONE"; }
-
-    @Override
-    public String registrationState() {
-        if (ownsRegistration) {
-            return core.modules().find(MODULE_ID).map(descriptor -> descriptor.state().name()).orElse("NOT_REGISTERED");
-        }
-        return registrationState;
-    }
-
-    @Override
-    public String detail() {
-        if (ownsRegistration) {
-            return core.modules().find(MODULE_ID).map(ModuleDescriptor::detail).orElse(detail);
-        }
-        return detail;
-    }
+    @Override public String mode() { return compatible && ownsRegistration ? "CORE_2_1" : "STANDALONE"; }
+    @Override public String registrationState() { return registrationState; }
+    @Override public String detail() { return detail; }
 
     @Override
     public void registerStarting() {
-        if (!compatible) {
-            plugin.getLogger().warning("PlexonCore API " + version.apiVersion()
-                + " is incompatible with supported range " + SUPPORTED_API_RANGE
-                + "; PlexonSpawners will continue in standalone compatibility mode.");
-            return;
-        }
-        ModuleDescriptor descriptor = new ModuleDescriptor(
+        if (!compatible) return;
+        final ModuleDescriptor descriptor = new ModuleDescriptor(
             MODULE_ID,
             "PlexonSpawners",
             plugin.getName(),
@@ -89,11 +69,10 @@ public final class PlexonCoreBridge implements CoreBridge {
             ModuleVersionRange.parse(SUPPORTED_API_RANGE),
             CAPABILITIES,
             ModuleState.STARTING,
-            "Initializing PlexonSpawners",
-            Instant.now()
-        );
-        ModuleRegistry.RegistrationResult result = core.modules().register(descriptor);
-        ModuleDescriptor registered = result.descriptor();
+            "WildStacker-authoritative policy layer initializing",
+            Instant.now());
+        final ModuleRegistry.RegistrationResult result = core.modules().register(descriptor);
+        final ModuleDescriptor registered = result.descriptor();
         ownsRegistration = registered != null && registered.plugin() == plugin;
         registrationState = registered == null ? "NOT_REGISTERED" : registered.state().name();
         detail = result.message();
@@ -102,31 +81,36 @@ public final class PlexonCoreBridge implements CoreBridge {
         }
     }
 
-    @Override public void markReady(String detail) { update(ModuleState.READY, detail); }
-    @Override public void markDegraded(String detail) { update(ModuleState.DEGRADED, detail); }
-    @Override public void markFailed(String detail) { update(ModuleState.FAILED, detail); }
+    @Override public void markReady(final String value) { update(ModuleState.READY, value); }
+    @Override public void markDegraded(final String value) { update(ModuleState.DEGRADED, value); }
+    @Override public void markFailed(final String value) { update(ModuleState.FAILED, value); }
 
-    private void update(ModuleState state, String newDetail) {
-        if (!compatible || !ownsRegistration) {
-            return;
+    private void update(final ModuleState state, final String value) {
+        if (!compatible || !ownsRegistration) return;
+        if (core.modules().updateState(MODULE_ID, plugin, state, value == null ? "" : value)) {
+            registrationState = state.name();
+            detail = value == null ? "" : value;
         }
-        if (!core.modules().updateState(MODULE_ID, plugin, state, newDetail)) {
-            ownsRegistration = false;
-            registrationState = "NOT_OWNER";
-            detail = "PlexonCore module ownership changed; state update rejected";
-            return;
-        }
-        registrationState = state.name();
-        detail = newDetail == null ? "" : newDetail;
     }
 
     @Override
     public void unregister() {
-        if (!ownsRegistration) {
-            return;
-        }
+        if (!ownsRegistration) return;
         core.modules().unregisterOwnedBy(plugin);
         ownsRegistration = false;
         registrationState = "UNREGISTERED";
+    }
+
+    @Override public <T> CompletableFuture<T> supplyIo(final Supplier<T> supplier) {
+        return core.scheduler().supplyIo(plugin, supplier);
+    }
+    @Override public CompletableFuture<Void> runIo(final Runnable task) {
+        return core.scheduler().runIo(plugin, task);
+    }
+    @Override public void runPrimary(final Runnable task) {
+        core.scheduler().runPrimary(plugin, task);
+    }
+    @Override public void schedulePrimary(final Duration delay, final Runnable task) {
+        core.scheduler().schedulePrimary(plugin, delay, task);
     }
 }

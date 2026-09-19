@@ -1,342 +1,185 @@
 package com.plexon.spawners;
 
+import com.plexon.spawners.api.DefaultPlexonSpawnersApi;
 import com.plexon.spawners.api.PlexonSpawnersApi;
-import com.plexon.spawners.command.PlexonSpawnersCommand;
-import com.plexon.spawners.compat.WildStackerCompat;
-import com.plexon.spawners.config.NativeStackSettings;
-import com.plexon.spawners.config.NearbyStackCapSettings;
+import com.plexon.spawners.command.SpawnersCommand;
+import com.plexon.spawners.config.ConfigBootstrap;
+import com.plexon.spawners.config.ConfigRevisionService;
 import com.plexon.spawners.config.PluginSettings;
-import com.plexon.spawners.config.RedstoneLockSettings;
-import com.plexon.spawners.diagnostics.PerformanceCounters;
-import com.plexon.spawners.gui.AdminGui;
-import com.plexon.spawners.gui.SpawnerControlGui;
+import com.plexon.spawners.essence.EssenceService;
+import com.plexon.spawners.gui.admin.AdminGuiService;
+import com.plexon.spawners.integration.WildStackerBridge;
 import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.integration.core.CoreBridgeFactory;
-import com.plexon.spawners.item.EssenceService;
-import com.plexon.spawners.item.SpawnerItemService;
-import com.plexon.spawners.listener.NearbyStackCapListener;
 import com.plexon.spawners.listener.SpawnerBreakListener;
-import com.plexon.spawners.listener.SpawnerChunkListener;
-import com.plexon.spawners.listener.SpawnerPlaceListener;
-import com.plexon.spawners.listener.SpawnerProtectionListener;
-import com.plexon.spawners.listener.SpawnerProvenanceListener;
-import com.plexon.spawners.managed.ManagedSpawnerRegistry;
-import com.plexon.spawners.managed.RedstoneSpawnerLockService;
-import com.plexon.spawners.managed.SpawnerMigrationService;
-import com.plexon.spawners.managed.SpawnerOriginService;
-import com.plexon.spawners.managed.SpawnerStackDisplayService;
-import com.plexon.spawners.managed.SpawnerStateService;
-import com.plexon.spawners.managed.SpawnerTuning;
 import com.plexon.spawners.message.MessageService;
-import java.util.List;
-import java.util.logging.Level;
+import com.plexon.spawners.reward.CustomDropService;
+import com.plexon.spawners.runtime.SpawnerRuntimeSnapshot;
+import java.io.File;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
+import org.bukkit.Bukkit;
 import org.bukkit.command.PluginCommand;
+import org.bukkit.configuration.file.FileConfiguration;
+import org.bukkit.configuration.file.YamlConfiguration;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.ServicePriority;
 import org.bukkit.plugin.java.JavaPlugin;
-import org.bukkit.scheduler.BukkitTask;
 
 public final class PlexonSpawners extends JavaPlugin {
-    private static final String LEGACY_SPAWNER_NAME = "<gradient:#8A2BE2:#D56BFF><b>%mob% Spawner</b></gradient>";
-    private static final List<String> LEGACY_SPAWNER_LORE = List.of(
-        "", "<gray>Places a <white>%mob%</white> spawner.", "",
-        "<dark_gray>Spawner Type:</dark_gray> <white>%mob%</white>",
-        "<dark_gray>Managed by PlexonSpawners</dark_gray>");
-    private static final String PLEXONCRAFT_SPAWNER_NAME =
-        "<!italic><gradient:#56B9F2:#92E1FF><b>✦ %mob% Spawner</b></gradient>";
-    private static final List<String> PLEXONCRAFT_SPAWNER_LORE = List.of(
-        "", "<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>",
-        "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>", "",
-        "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
-        "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>", "",
-        "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
-        "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>");
-    private static final List<String> PHASE2_SPAWNER_LORE = List.of(
-        "", "<!italic><#D8DEE9>A dormant cage bound to the</#D8DEE9>",
-        "<!italic><#D8DEE9>essence of <white>%mob%</white>.</#D8DEE9>", "",
-        "<!italic><#4B5563>› <#8B95A7>Creature</#8B95A7> <white>%mob%</white>",
-        "<!italic><#4B5563>› <#8B95A7>Tier</#8B95A7> <#72F1B8>%tier%</#72F1B8>",
-        "<!italic><#4B5563>› <#8B95A7>State</#8B95A7> <#72F1B8>Ready to Place</#72F1B8>", "",
-        "<!italic><#8B95A7>Place to awaken this spawner.</#8B95A7>",
-        "<!italic><gradient:#C850C0:#FF7EB3>PlexonCraft</gradient> <dark_gray>• Spawner</dark_gray>");
-
     private final PluginSettings settings = new PluginSettings();
-    private final SpawnerTuning tuning = new SpawnerTuning();
-    private final NativeStackSettings nativeStackSettings = new NativeStackSettings();
-    private final NearbyStackCapSettings nearbyStackCapSettings = new NearbyStackCapSettings();
-    private final RedstoneLockSettings redstoneLockSettings = new RedstoneLockSettings();
-    private final PerformanceCounters performanceCounters = new PerformanceCounters();
+    private final ConfigRevisionService revisions = new ConfigRevisionService();
+    private final AtomicLong generation = new AtomicLong();
 
     private MessageService messages;
     private EssenceService essenceService;
-    private SpawnerItemService spawnerItemService;
-    private PlexonSpawnersApi api;
+    private CustomDropService customDropService;
+    private WildStackerBridge wildStacker;
     private CoreBridge coreBridge;
-    private WildStackerCompat wildStackerCompat;
-    private ManagedSpawnerRegistry managedRegistry;
-    private SpawnerStateService spawnerStateService;
-    private SpawnerOriginService spawnerOriginService;
-    private RedstoneSpawnerLockService redstoneLockService;
-    private SpawnerMigrationService migrationService;
-    private SpawnerStackDisplayService stackDisplayService;
-    private SpawnerControlGui controlGui;
-    private BukkitTask persistenceTask;
+    private AdminGuiService adminGui;
+    private SpawnerBreakListener breakListener;
+    private volatile SpawnerRuntimeSnapshot runtime;
 
     @Override
     public void onEnable() {
-        coreBridge = CoreBridgeFactory.resolve(this);
-        coreBridge.registerStarting();
         try {
-            saveDefaultConfig();
-            migrateConfig();
+            ConfigBootstrap.ensureV4Config(this);
+            wildStacker = new WildStackerBridge(this);
+            coreBridge = CoreBridgeFactory.resolve(this);
+            coreBridge.registerStarting();
 
             messages = new MessageService(this);
-            settings.reload(getConfig());
-            tuning.reload(getConfig());
-            nativeStackSettings.reload(getConfig());
-            nearbyStackCapSettings.reload(getConfig());
-            redstoneLockSettings.reload(getConfig());
-            reportConfigurationWarnings();
+            essenceService = new EssenceService(this, settings);
+            customDropService = new CustomDropService(this, settings);
 
-            essenceService = new EssenceService(this);
-            spawnerItemService = new SpawnerItemService(this);
-            spawnerStateService = new SpawnerStateService(this);
-            spawnerOriginService = new SpawnerOriginService(this);
-            managedRegistry = new ManagedSpawnerRegistry(this);
-            managedRegistry.load();
+            final SpawnerRuntimeSnapshot initial = prepareRuntimeCandidate(
+                getConfig(), messages.prepareFromDisk(), generation.incrementAndGet());
+            commitRuntime(initial);
 
-            api = new PlexonSpawnersApi(essenceService, spawnerItemService, managedRegistry, spawnerOriginService);
-            getServer().getServicesManager().register(PlexonSpawnersApi.class, api, this, ServicePriority.Normal);
+            breakListener = new SpawnerBreakListener(
+                this, settings, essenceService, customDropService, messages, wildStacker, coreBridge);
+            adminGui = new AdminGuiService(this, settings, messages, essenceService, customDropService, revisions);
+            getServer().getPluginManager().registerEvents(breakListener, this);
+            getServer().getPluginManager().registerEvents(adminGui, this);
 
-            wildStackerCompat = new WildStackerCompat(this, detail -> coreBridge.markDegraded(detail));
-            redstoneLockService = new RedstoneSpawnerLockService(this, managedRegistry, redstoneLockSettings);
-            migrationService = new SpawnerMigrationService(
-                this, managedRegistry, spawnerStateService, tuning, nativeStackSettings, wildStackerCompat);
-            stackDisplayService = new SpawnerStackDisplayService(this, managedRegistry, tuning, nativeStackSettings);
-
-            final AdminGui adminGui = new AdminGui(this, essenceService, messages);
-            controlGui = new SpawnerControlGui(
-                this, managedRegistry, spawnerStateService, tuning, nativeStackSettings, spawnerItemService,
-                essenceService, nearbyStackCapSettings, wildStackerCompat, redstoneLockService, stackDisplayService);
-            final PlexonSpawnersCommand command = new PlexonSpawnersCommand(
-                this, adminGui, essenceService, spawnerItemService, messages);
-            final NearbyStackCapListener nearbyStackCapListener = new NearbyStackCapListener(
-                managedRegistry, nearbyStackCapSettings, nativeStackSettings, wildStackerCompat, performanceCounters);
-            wildStackerCompat.setSpawnGuard(nearbyStackCapListener);
-
+            final SpawnersCommand command = new SpawnersCommand(this, messages, adminGui);
             final PluginCommand pluginCommand = getCommand("pspawners");
-            if (pluginCommand == null) {
-                throw new IllegalStateException("Command 'pspawners' is missing from plugin.yml");
-            }
+            if (pluginCommand == null) throw new IllegalStateException("Command 'pspawners' is missing from plugin.yml");
             pluginCommand.setExecutor(command);
             pluginCommand.setTabCompleter(command);
 
-            final SpawnerChunkListener chunkListener = new SpawnerChunkListener(
-                managedRegistry, spawnerStateService, tuning, migrationService, stackDisplayService);
-            getServer().getPluginManager().registerEvents(adminGui, this);
-            getServer().getPluginManager().registerEvents(controlGui, this);
-            getServer().getPluginManager().registerEvents(chunkListener, this);
-            getServer().getPluginManager().registerEvents(redstoneLockService, this);
-            getServer().getPluginManager().registerEvents(nearbyStackCapListener, this);
-            getServer().getPluginManager().registerEvents(wildStackerCompat, this);
-            getServer().getPluginManager().registerEvents(
-                new SpawnerProtectionListener(managedRegistry, nativeStackSettings), this);
-            getServer().getPluginManager().registerEvents(
-                new SpawnerBreakListener(
-                    settings, nativeStackSettings, essenceService, spawnerItemService, messages,
-                    wildStackerCompat, performanceCounters, managedRegistry, spawnerStateService,
-                    tuning, stackDisplayService), this);
-            getServer().getPluginManager().registerEvents(
-                new SpawnerPlaceListener(
-                    spawnerItemService, spawnerStateService, managedRegistry, tuning, nativeStackSettings,
-                    redstoneLockService, stackDisplayService, performanceCounters), this);
-            getServer().getPluginManager().registerEvents(
-                new SpawnerProvenanceListener(managedRegistry, tuning, spawnerOriginService), this);
+            getServer().getServicesManager().register(
+                PlexonSpawnersApi.class, new DefaultPlexonSpawnersApi(this), this, ServicePriority.Normal);
 
-            chunkListener.reconcileAlreadyLoaded();
-            redstoneLockService.start();
-            schedulePersistenceCoordinator();
-
-            coreBridge.markReady(
-                "Native spawner stacks, direct entity aggregation, tiers, migration, redstone lock, logical cap, provenance and Essence ready");
+            coreBridge.markReady("WildStacker-authoritative policy layer ready; runtime generation " + runtimeGeneration());
             getLogger().info("PlexonSpawners " + getPluginMeta().getVersion()
-                + " enabled for Paper 26.2 in " + coreBridge.mode() + " mode with "
-                + managedRegistry.size() + " managed physical spawners / "
-                + managedRegistry.totalLogicalAmount() + " logical spawners.");
-        } catch (RuntimeException | LinkageError exception) {
-            coreBridge.markFailed("Critical startup failure: " + exception.getClass().getSimpleName());
-            getLogger().log(Level.SEVERE, "PlexonSpawners failed to initialize safely.", exception);
+                + " enabled. WildStacker " + wildStacker.version()
+                + " owns all stack/item/upgrade state; Core mode=" + coreBridge.mode()
+                + "; config schema=" + settings.configSchema()
+                + "; generation=" + runtimeGeneration() + ".");
+        } catch (final RuntimeException | LinkageError exception) {
+            if (coreBridge != null) coreBridge.markFailed("Startup failed: " + exception.getClass().getSimpleName());
             throw exception;
         }
     }
 
     @Override
     public void onDisable() {
-        if (persistenceTask != null) {
-            persistenceTask.cancel();
-            persistenceTask = null;
-        }
-        if (controlGui != null) {
-            controlGui.close();
-        }
-        if (stackDisplayService != null) {
-            stackDisplayService.close();
-        }
-        if (redstoneLockService != null) {
-            redstoneLockService.close();
-        }
-        if (managedRegistry != null) {
-            managedRegistry.close();
-        }
-        getServer().getServicesManager().unregisterAll(this);
-        if (coreBridge != null) {
-            coreBridge.unregister();
-        }
+        if (breakListener != null) breakListener.shutdown();
+        if (getServer() != null) getServer().getServicesManager().unregisterAll(this);
+        if (coreBridge != null) coreBridge.close();
     }
 
-    public void reloadPlugin() {
-        reloadConfig();
-        migrateConfig();
-        settings.reload(getConfig());
-        tuning.reload(getConfig());
-        nativeStackSettings.reload(getConfig());
-        nearbyStackCapSettings.reload(getConfig());
-        redstoneLockSettings.reload(getConfig());
-        if (messages != null) { messages.reload(); }
-        if (essenceService != null) { essenceService.reload(); }
-        if (spawnerItemService != null) { spawnerItemService.reload(); }
-        if (wildStackerCompat != null) { wildStackerCompat.refresh(); }
-        if (redstoneLockService != null) { redstoneLockService.reload(); }
-        if (stackDisplayService != null) { stackDisplayService.reconcileLoaded(); }
-        schedulePersistenceCoordinator();
-        reportConfigurationWarnings();
+    public SpawnerRuntimeSnapshot prepareRuntimeCandidate(
+        final FileConfiguration candidate,
+        final MessageService.Snapshot messageSnapshot,
+        final long candidateGeneration
+    ) {
+        final PluginSettings.Snapshot preparedSettings = settings.prepare(candidate);
+        final ItemStack essenceTemplate = essenceService.prepare(preparedSettings);
+        final ItemStack customTemplate = customDropService.prepare(preparedSettings);
+        return new SpawnerRuntimeSnapshot(
+            candidateGeneration,
+            preparedSettings,
+            messageSnapshot,
+            candidate.saveToString(),
+            essenceTemplate,
+            customTemplate,
+            wildStacker.version(),
+            coreBridge.mode(),
+            coreBridge.registrationState());
+    }
+
+    /** Commit contains no filesystem work and is called only on the primary thread. */
+    public void commitRuntime(final SpawnerRuntimeSnapshot prepared) {
+        if (!Bukkit.isPrimaryThread()) throw new IllegalStateException("Runtime commit must occur on the primary thread");
+        settings.commit(prepared.settings());
+        messages.commit(prepared.messages());
+        essenceService.commit(prepared.essenceTemplate());
+        customDropService.commit(prepared.customTemplate());
+        runtime = prepared;
+        generation.set(Math.max(generation.get(), prepared.generation()));
+    }
+
+    public CompletableFuture<Long> reloadPluginAsync() {
+        final CompletableFuture<Long> result = new CompletableFuture<>();
+        coreBridge.supplyIo(() -> {
+            final File configFile = new File(getDataFolder(), "config.yml");
+            final YamlConfiguration config = YamlConfiguration.loadConfiguration(configFile);
+            final MessageService.Snapshot catalog = messages.prepareFromDisk();
+            return new ReloadPayload(config, catalog);
+        }).whenComplete((payload, error) -> {
+            if (error != null) {
+                result.completeExceptionally(error);
+                return;
+            }
+            coreBridge.runPrimary(() -> {
+                try {
+                    final long nextGeneration = generation.get() + 1L;
+                    final SpawnerRuntimeSnapshot prepared = prepareRuntimeCandidate(
+                        payload.config(), payload.messages(), nextGeneration);
+                    commitRuntime(prepared);
+                    final long revision = revisions.bump();
+                    if (adminGui != null) adminGui.invalidateSessions();
+                    coreBridge.markReady("Runtime reload committed at generation " + nextGeneration);
+                    result.complete(revision);
+                } catch (final RuntimeException exception) {
+                    coreBridge.markDegraded("Runtime reload rejected: " + exception.getMessage());
+                    result.completeExceptionally(exception);
+                }
+            });
+        });
+        return result;
+    }
+
+    public YamlConfiguration liveConfigCopy() {
+        final SpawnerRuntimeSnapshot current = runtime;
+        if (current == null) throw new IllegalStateException("Runtime is not initialized");
+        final YamlConfiguration copy = new YamlConfiguration();
+        try {
+            copy.loadFromString(current.configYaml());
+        } catch (final org.bukkit.configuration.InvalidConfigurationException exception) {
+            throw new IllegalStateException("Committed runtime YAML is invalid", exception);
+        }
+        return copy;
+    }
+
+    public long runtimeGeneration() {
+        final SpawnerRuntimeSnapshot current = runtime;
+        return current == null ? 0L : current.generation();
+    }
+
+    public int pendingBreakTransactions() {
+        return breakListener == null ? 0 : breakListener.pendingCount();
     }
 
     public PluginSettings settings() { return settings; }
-    public SpawnerTuning tuning() { return tuning; }
-    public NativeStackSettings nativeStackSettings() { return nativeStackSettings; }
-    public NearbyStackCapSettings nearbyStackCapSettings() { return nearbyStackCapSettings; }
-    public RedstoneLockSettings redstoneLockSettings() { return redstoneLockSettings; }
-    public RedstoneSpawnerLockService redstoneLockService() { return redstoneLockService; }
-    public PlexonSpawnersApi api() { return api; }
+    public WildStackerBridge wildStacker() { return wildStacker; }
     public CoreBridge coreBridge() { return coreBridge; }
-    public WildStackerCompat wildStackerCompat() { return wildStackerCompat; }
+    public ConfigRevisionService revisions() { return revisions; }
     public EssenceService essenceService() { return essenceService; }
-    public SpawnerItemService spawnerItemService() { return spawnerItemService; }
-    public ManagedSpawnerRegistry managedRegistry() { return managedRegistry; }
-    public SpawnerMigrationService migrationService() { return migrationService; }
-    public PerformanceCounters performanceCounters() { return performanceCounters; }
+    public CustomDropService customDropService() { return customDropService; }
+    public SpawnerRuntimeSnapshot runtimeSnapshot() { return runtime; }
 
-    private void schedulePersistenceCoordinator() {
-        if (managedRegistry == null) {
-            return;
-        }
-        if (persistenceTask != null) {
-            persistenceTask.cancel();
-        }
-        final long interval = tuning.persistenceIntervalTicks();
-        persistenceTask = getServer().getScheduler().runTaskTimer(
-            this, managedRegistry::flushAsync, interval, interval);
-    }
-
-    private void reportConfigurationWarnings() {
-        for (final String warning : settings.validationWarnings()) {
-            getLogger().warning("Configuration: " + warning);
-        }
-        for (final String warning : nativeStackSettings.validationWarnings()) {
-            getLogger().warning("Configuration: " + warning);
-        }
-    }
-
-    private void migrateConfig() {
-        boolean changed = false;
-        if (!getConfig().contains("config-version")) {
-            getConfig().set("config-version", 2);
-            changed = true;
-        }
-        if (!getConfig().contains("breaking.take-ownership")) {
-            getConfig().set("breaking.take-ownership", true);
-            changed = true;
-        }
-        if (!getConfig().contains("breaking.allow-silk-bypass-permission")) {
-            getConfig().set("breaking.allow-silk-bypass-permission", false);
-            changed = true;
-        }
-        if (!getConfig().contains("essence.default-chance")) {
-            getConfig().set("essence.default-chance", 35.0);
-            changed = true;
-        }
-
-        final int configVersion = getConfig().getInt("config-version", 1);
-        if (configVersion < 2) {
-            getConfig().set("config-version", 2);
-            changed = true;
-        }
-        if (configVersion < 3) {
-            final String currentName = getConfig().getString("spawner-item.name", "");
-            final List<String> currentLore = getConfig().getStringList("spawner-item.lore");
-            if (LEGACY_SPAWNER_NAME.equals(currentName) && LEGACY_SPAWNER_LORE.equals(currentLore)) {
-                getConfig().set("spawner-item.name", PLEXONCRAFT_SPAWNER_NAME);
-                getConfig().set("spawner-item.lore", PLEXONCRAFT_SPAWNER_LORE);
-            }
-            getConfig().set("config-version", 3);
-            changed = true;
-        }
-        if (configVersion < 4) {
-            getConfig().set("config-version", 4);
-            changed = true;
-        }
-        if (configVersion < 5) {
-            final String currentName = getConfig().getString("spawner-item.name", "");
-            final List<String> currentLore = getConfig().getStringList("spawner-item.lore");
-            if (PLEXONCRAFT_SPAWNER_NAME.equals(currentName) && PLEXONCRAFT_SPAWNER_LORE.equals(currentLore)) {
-                getConfig().set("spawner-item.lore", PHASE2_SPAWNER_LORE);
-            }
-            getConfig().set("config-version", 5);
-            changed = true;
-        }
-        if (configVersion < 6) {
-            if (!getConfig().contains("managed.nearby-stack-cap.enabled", true)) {
-                getConfig().set("managed.nearby-stack-cap.enabled", true);
-            }
-            if (!getConfig().contains("managed.nearby-stack-cap.radius", true)) {
-                getConfig().set("managed.nearby-stack-cap.radius", NearbyStackCapSettings.DEFAULT_RADIUS);
-            }
-            if (!getConfig().contains("managed.nearby-stack-cap.maximum-amount", true)) {
-                getConfig().set("managed.nearby-stack-cap.maximum-amount", NearbyStackCapSettings.DEFAULT_MAXIMUM);
-            }
-            if (!getConfig().contains("managed.nearby-stack-cap.same-type-only", true)) {
-                getConfig().set("managed.nearby-stack-cap.same-type-only", true);
-            }
-            getConfig().set("config-version", 6);
-            changed = true;
-        }
-        if (configVersion < 7) {
-            if (!getConfig().contains("managed.redstone-lock.enabled", true)) {
-                getConfig().set("managed.redstone-lock.enabled", true);
-            }
-            if (!getConfig().contains("managed.redstone-lock.poll-interval-ticks", true)) {
-                getConfig().set("managed.redstone-lock.poll-interval-ticks", RedstoneLockSettings.DEFAULT_POLL_INTERVAL_TICKS);
-            }
-            getConfig().set("config-version", 7);
-            changed = true;
-        }
-        if (configVersion < 8) {
-            getConfig().set("config-version", 8);
-            changed = true;
-        }
-        if (configVersion < 9) {
-            // 3.4 adds entity-aggregation settings and new bundled adjacent-stack
-            // defaults. copyDefaults below materializes missing keys but deliberately
-            // does not overwrite an administrator's existing nearby.enabled value.
-            getConfig().set("config-version", 9);
-            changed = true;
-        }
-
-        // Materialize resource defaults without overwriting administrator values.
-        getConfig().options().copyDefaults(true);
-        saveConfig();
-        if (changed) {
-            getLogger().info("Updated configuration defaults for PlexonSpawners 3.4 stacking/Essence reliability (schema 9).");
-        }
-    }
+    private record ReloadPayload(YamlConfiguration config, MessageService.Snapshot messages) {}
 }

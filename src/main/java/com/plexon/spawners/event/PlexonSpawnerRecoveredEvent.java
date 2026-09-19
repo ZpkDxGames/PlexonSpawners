@@ -1,68 +1,40 @@
 package com.plexon.spawners.event;
 
-import org.bukkit.Location;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.Player;
+import org.bukkit.event.Event;
 import org.bukkit.event.HandlerList;
-import org.bukkit.event.player.PlayerEvent;
+import org.bukkit.inventory.ItemStack;
 import org.jetbrains.annotations.NotNull;
 
-public final class PlexonSpawnerRecoveredEvent extends PlayerEvent {
+public final class PlexonSpawnerRecoveredEvent extends Event {
     private static final HandlerList HANDLERS = new HandlerList();
-
+    private final Player player;
     private final EntityType entityType;
-    private final int spawnerAmount;
-    private final Location sourceLocation;
-    private final int silkTouchLevel;
-    private final boolean usedBypass;
-    private final boolean wildStackerManaged;
-    private final String eventId;
-    private final String transactionId;
+    private final int logicalAmount;
+    private final ItemStack authoritativeItem;
+    private final long transactionId;
 
     public PlexonSpawnerRecoveredEvent(
-        Player player,
-        EntityType entityType,
-        int spawnerAmount,
-        Location sourceLocation,
-        int silkTouchLevel,
-        boolean usedBypass,
-        boolean wildStackerManaged,
-        String eventId,
-        String transactionId
+        final Player player,
+        final EntityType entityType,
+        final int logicalAmount,
+        final ItemStack authoritativeItem,
+        final long transactionId
     ) {
-        super(player);
+        this.player = player;
         this.entityType = entityType;
-        this.spawnerAmount = spawnerAmount;
-        this.sourceLocation = sourceLocation.clone();
-        this.silkTouchLevel = silkTouchLevel;
-        this.usedBypass = usedBypass;
-        this.wildStackerManaged = wildStackerManaged;
-        this.eventId = requireId(eventId, "eventId");
-        this.transactionId = requireId(transactionId, "transactionId");
+        this.logicalAmount = logicalAmount;
+        this.authoritativeItem = authoritativeItem.clone();
+        this.transactionId = transactionId;
     }
 
+    public Player getPlayer() { return player; }
     public EntityType getEntityType() { return entityType; }
-    public int getSpawnerAmount() { return spawnerAmount; }
-    public Location getSourceLocation() { return sourceLocation.clone(); }
-    public int getSilkTouchLevel() { return silkTouchLevel; }
-    public boolean usedBypass() { return usedBypass; }
-    public boolean isWildStackerManaged() { return wildStackerManaged; }
-    public String getEventId() { return eventId; }
-    public String getTransactionId() { return transactionId; }
+    public int getLogicalAmount() { return logicalAmount; }
+    public ItemStack getAuthoritativeItem() { return authoritativeItem.clone(); }
+    public long getTransactionId() { return transactionId; }
 
-    @Override
-    public @NotNull HandlerList getHandlers() {
-        return HANDLERS;
-    }
-
-    public static @NotNull HandlerList getHandlerList() {
-        return HANDLERS;
-    }
-
-    private static String requireId(String value, String name) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(name + " must not be blank");
-        }
-        return value;
-    }
+    @Override public @NotNull HandlerList getHandlers() { return HANDLERS; }
+    public static HandlerList getHandlerList() { return HANDLERS; }
 }

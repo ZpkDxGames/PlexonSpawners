@@ -1,25 +1,24 @@
-# ============================================================================
-# PlexonSpawners - PlexonCraft Message Theme
-# ============================================================================
-# All values support MiniMessage formatting.
-# Keep player-facing feedback short and readable; detailed configuration
-# explanations belong in config.yml and the admin GUI.
-# ============================================================================
-
 prefix: '<gradient:#56B9F2:#92E1FF><b>SPAWNERS</b></gradient> <dark_gray>»</dark_gray> '
 
 no-permission: '<#FF6B6B>You do not have permission to use that.</#FF6B6B>'
-player-only: '<#FF6B6B>This action is only available in-game.</#FF6B6B>'
-reloaded: '<#72F1B8>Spawner settings and item templates reloaded.</#72F1B8>'
-invalid-player: '<#FF6B6B>Player <white>%player%</white> is not online.</#FF6B6B>'
-invalid-entity: '<#FF6B6B>Unknown creature type: <white>%entity%</white>.</#FF6B6B>'
-invalid-number: '<#FF6B6B><white>%value%</white> must be a positive number.</#FF6B6B>'
-
-gave-spawner: '<#72F1B8>Gave <white>%amount%x %mob% Spawner</white> to <white>%player%</white>.</#72F1B8>'
-gave-essence: '<#72F1B8>Gave <white>%amount%x Spawner Essence</white> to <white>%player%</white>.</#72F1B8>'
-
-essence-set: '<#72F1B8>Spawner Essence template updated from your main hand.</#72F1B8> <#8B95A7>Its secure identity was applied automatically.</#8B95A7>'
-essence-empty-hand: '<#FFD166>Hold the item you want to use as Spawner Essence in your main hand.</#FFD166>'
-
-spawner-recovered: '<#72F1B8>Spawner recovered!</#72F1B8> <#D8DEE9>You secured a <white>%mob% Spawner</white>.</#D8DEE9>'
-essence-dropped: '<#D8DEE9>The spawner fractured, leaving <gradient:#C850C0:#FF7EB3><b>%amount%x Spawner Essence</b></gradient><#D8DEE9>.</#D8DEE9>'
+reload-started: '<gray>Preparing PlexonSpawners configuration on the bounded I/O lane...</gray>'
+reloaded: '<#72F1B8>PlexonSpawners runtime generation reloaded successfully (revision <white>%revision%</white>).</#72F1B8>'
+reload-failed: '<#FF6B6B>Reload rejected; the previous runtime generation remains active. <gray>%error%</gray></#FF6B6B>'
+admin-player-only: '<#FFD166>The administrator GUI can only be opened by a player.</#FFD166>'
+admin-gui-disabled: '<#FFD166>The PlexonSpawners administrator GUI is disabled.</#FFD166>'
+admin-held-item-required: '<#FFD166>Hold a non-air item in your main hand first.</#FFD166>'
+admin-save-success: '<#72F1B8>Configuration backed up, written and atomically committed.</#72F1B8>'
+admin-save-invalid: '<#FF6B6B>The draft contains validation errors. Fix them before saving.</#FF6B6B>'
+admin-save-busy: '<#FFD166>Another administrator configuration save is already pending.</#FFD166>'
+admin-save-failed: '<#FF6B6B>The configuration transaction failed; the previous runtime generation was retained.</#FF6B6B>'
+admin-discarded: '<#FFD166>Unsaved administrator changes were discarded.</#FFD166>'
+give-usage: '<gray>Usage:</gray> <white>/pspawners give <player> <mobtype> <amount></white>'
+give-player-not-found: '<#FF6B6B>Player <white>%player%</white> is not online.</#FF6B6B>'
+give-invalid-mob: '<#FF6B6B><white>%mob%</white> is not a valid living mob type.</#FF6B6B>'
+give-invalid-amount: '<#FF6B6B><white>%amount%</white> is not a valid positive spawner amount.</#FF6B6B>'
+give-failed: '<#FF6B6B>WildStacker rejected the spawner give operation.</#FF6B6B>'
+give-success: '<#72F1B8>Gave <white>%player%</white> <white>%amount%x %mob% Spawner</white> through WildStacker.</#72F1B8>'
+give-received: '<#72F1B8>You received <white>%amount%x %mob% Spawner</white>.</#72F1B8>'
+spawner-recovered: '<#72F1B8>Recovered <white>%amount%x %mob% Spawner</white> through WildStacker.</#72F1B8>'
+essence-awarded: '<#D8DEE9>The %mob% spawner fractured into <gradient:#56B9F2:#92E1FF><b>%amount%x Spawner Essence</b></gradient><#D8DEE9>.</#D8DEE9>'
+custom-drop-awarded: '<#D8DEE9>The %mob% spawner yielded <gradient:#7BE7FF:#4AA8FF><b>%amount%x custom reward item(s)</b></gradient><#D8DEE9>.</#D8DEE9>'

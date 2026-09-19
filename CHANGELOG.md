@@ -1,27 +1,53 @@
 # Changelog
 
-## 3.4.0 - Stacking, Entity Aggregation & Essence Reliability
+## 4.0.0 — WildStacker Authority + Policy Administration
 
-- Restored adjacent native spawner placement as an out-of-box behavior for new 3.4 configurations: `managed.stacking.auto-stack.nearby.enabled` now defaults to `true` with radius `1`.
-- Preserved explicit administrator overrides during config schema-9 migration; existing 3.3 installations with an explicit `nearby.enabled: false` are not silently rewritten.
-- Replaced the 3.3 spawned-entity path that could suppress WildStacker's immediate compatible merge with explicit Plexon logical-contribution orchestration and a provider-backed entity-stack contract.
-- Added bounded deterministic nearby target selection: nearest compatible entity stack first, stable UUID tie-break second.
-- Added cached WildStacker public-API support for logical amount inspection, provider compatibility checks, target stack growth, source stack removal and rollback-safe mutation handling.
-- Removed blanket cancellation of matching WildStacker `EntityStackEvent`s so production `stack-interval: 0` remains usable while WildStacker spawner stacking stays disabled.
-- Added a safe physical fallback backend for absent/degraded entity-stack providers; physical output remains bounded by `vanilla-physical-output-cap` and uses `CreatureSpawnEvent.SpawnReason.SPAWNER`.
-- Kept the nearby logical population cap authoritative and added behavior tests for exact cap edges such as nearby `x95`, max `99`, requested `x8` -> admitted `x4`.
-- Preserved `BOUNDED_LINEAR` and `LINEAR` as distinct modes with overflow-safe arithmetic.
-- Rebuilt Essence reward decision logic around a deterministic pure policy. Native stack breaks now perform one configured eligibility roll per logical spawner unit removed and aggregate successful rewards before creating physical ItemStacks.
-- Added deterministic 0%/100%/partial Essence tests, ONE-vs-ALL quantity tests, default rule/delivery tests, and production override coverage for Blaze, Creeper, Enderman, Wither Skeleton and Iron Golem.
-- Preserved qualified Silk Touch recovery as mutually exclusive with failure Essence unless future configuration explicitly changes that contract.
-- Preserved safe GROUND/INVENTORY Essence delivery, inventory-overflow ground fallback, PDC item identity and safe stack splitting.
-- Preserved managed persistence schema `2`, physical managed-spawner PDC schema `2`, managed item schema `2`, schema-1 compatibility and restart-safe WildStacker migration states.
-- Preserved redstone lock, TextDisplay stack labels, ONE/ALL break, tier-preserving withdraw, stack-aware upgrade pricing and physical mutation guards.
-- Advanced configuration schema from `8` to `9` and added `managed.stacking.spawning.entity-aggregation` controls.
-- Updated Java 25 / Paper 26.2 distribution verification for new 3.4 release-critical classes.
-- Reset stable release provenance baseline to immutable `v3.3.0` source `737bc629d95da3acafd74c679a9d1b13a4d772db` and JAR SHA-256 `60a6af1b9db3bfb786122cf02cc3e9b8178548b6ee745e832b0140fb3304bdf5`.
-- Stable publication remains source/CI certified separately from live PlexonCraft runtime certification; live runtime is reported `NOT_EXECUTED` unless real host evidence is supplied.
+### Architecture
+- WildStacker remains the hard dependency and sole authority for spawner/entity/item stacking, placement, persistence, merging, quantities, upgrades/tiers and normal placed-spawner interaction.
+- PlexonSpawners continues to use the pinned public `WildStackerAPI:2026.2` directly; no reflection bridge or shaded WildStacker runtime is introduced.
+- The removed 3.x native stack registry/database, physical fallback, entity aggregation, tiers/upgrades, redstone lock and duplicate persistence remain absent.
+- Removed the Plexon player-facing placed-spawner withdrawal GUI and its listener/holder/policy implementation so WildStacker's native spawner interaction is unobstructed.
+- Singular physical spawners now use WildStacker's valid transient `StackedSpawner` representation; cache membership is no longer treated as a validity requirement.
 
-## Historical changelog through 3.3.0
+### Administrator experience
+- Added `/pspawners admin` with `plexonspawners.admin.gui`.
+- Admin changes live in isolated draft sessions instead of saving config on every click.
+- Added config revision protection so one administrator cannot silently overwrite another administrator's later save/reload.
+- Added full-draft validation, timestamped config backups, temporary-file writes, atomic replace where supported, runtime reload verification and rollback-oriented failure handling.
+- Added sanitized held-item reward templates that copy supported visual fields without retaining arbitrary foreign PDC.
+- The administrator GUI remains separate from player spawner interaction; it manages Plexon-owned policy only.
 
-The complete pre-3.4 changelog is preserved verbatim in [`CHANGELOG_LEGACY_THROUGH_3.3.md`](CHANGELOG_LEGACY_THROUGH_3.3.md). Historical GitHub tags and releases remain immutable.
+### Commands
+- `/pspawners give <player> <mobtype> <amount>` delegates authoritative spawner-item creation to WildStacker through the namespaced command.
+- `/pspawners admin`, `/pspawners status` and `/pspawners reload` remain available.
+
+### Rewards and break safety
+- Added explicit non-Silk modes: `ESSENCE`, `CUSTOM_ITEM`, `ESSENCE_AND_CUSTOM_ITEM`, `NONE`.
+- Added configurable custom non-Silk reward items with stable PlexonSpawners PDC identity.
+- Essence and custom rewards roll independently once per exact logical spawner unit reported by WildStacker and aggregate successful rewards before delivery.
+- Added inventory/ground delivery, overflow handling and long-based aggregation.
+- Added per-mob reward-mode, Essence and custom reward overrides with inheritance/reset behavior.
+- Creative recovery, Essence and custom rewards are explicit independent policy flags.
+- Added a pre-removal physical break-intent snapshot so the final `1x -> 0` transition cannot lose the mob type or WildStacker recovery-item identity.
+- Added exactly-once completion across `BlockBreakEvent`, `SpawnerUnstackEvent`, `SpawnerDropEvent` and next-tick reconciliation.
+- Protected/unchanged breaks produce no spawner recovery, Essence or custom reward.
+
+### Existing behavior preserved
+- Qualifying Silk Touch recovery uses WildStacker's authoritative `getDropItem(amount)` representation.
+- Break/reward policy consumes WildStacker's authoritative logical quantities, preferring `SpawnerUnstackEvent#getAmount()` when emitted.
+- WildStacker exclusively receives normal placed-spawner right-click interaction and may open its native tier/upgrade GUI.
+- No Plexon stack engine, stack persistence, placement interception or upgrade system was reintroduced.
+
+### Configuration
+- Schema remains `11`; no new migration exists for the singular transaction fix.
+- The targeted 10→11 migration remains intact.
+- Existing v11 `gui:` or withdrawal-message keys are harmless legacy keys and no longer create a player placed-spawner GUI entrypoint.
+- Final campaign migration status: `NOT_REQUIRED`.
+
+### Validation and release
+- Architecture contracts cover transient singular resolution, physical break-intent capture, pre-removal WildStacker item snapshots and the absence of a second stack authority.
+- Pure transaction tests cover exactly-once completion, singular removal, `2x -> 1x`, final `1x -> 0` and denied/unchanged reconciliation.
+- Live PlexonCraft testing is still mandatory for the exact remediated candidate. The prior broad 4.0 runtime acceptance is not reusable after the singular blocker was discovered.
+- Stable publication remains blocked until the exact CI-built remediated JAR passes the required singular + stacked runtime matrix.
+
+Historical 3.x details remain in the prior release notes and legacy changelog files.

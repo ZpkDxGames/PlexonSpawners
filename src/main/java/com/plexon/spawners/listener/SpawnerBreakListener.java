@@ -1,396 +1,413 @@
 package com.plexon.spawners.listener;
 
-import com.plexon.spawners.compat.WildStackerCompat;
-import com.plexon.spawners.config.NativeStackSettings;
+import com.bgsoftware.wildstacker.api.events.SpawnerDropEvent;
+import com.bgsoftware.wildstacker.api.events.SpawnerUnstackEvent;
+import com.bgsoftware.wildstacker.api.objects.StackedSpawner;
+import com.plexon.spawners.breaking.BreakCompletionGate;
+import com.plexon.spawners.breaking.BreakReconciliation;
+import com.plexon.spawners.breaking.SpawnerBreakPolicy;
 import com.plexon.spawners.config.PluginSettings;
-import com.plexon.spawners.diagnostics.PerformanceCounters;
-import com.plexon.spawners.event.PlexonSpawnerEssenceAwardedEvent;
+import com.plexon.spawners.essence.EssenceService;
+import com.plexon.spawners.event.PlexonSpawnerBreakFinalizedEvent;
 import com.plexon.spawners.event.PlexonSpawnerRecoveredEvent;
-import com.plexon.spawners.item.EssenceRewardPolicy;
-import com.plexon.spawners.item.EssenceService;
-import com.plexon.spawners.item.SpawnerItemService;
-import com.plexon.spawners.managed.ManagedSpawner;
-import com.plexon.spawners.managed.ManagedSpawnerRegistry;
-import com.plexon.spawners.managed.SpawnerStackDisplayService;
-import com.plexon.spawners.managed.SpawnerStateService;
-import com.plexon.spawners.managed.SpawnerTuning;
+import com.plexon.spawners.event.PlexonSpawnerRewardFinalizedEvent;
+import com.plexon.spawners.integration.WildStackerBridge;
+import com.plexon.spawners.integration.core.CoreBridge;
 import com.plexon.spawners.message.MessageService;
+import com.plexon.spawners.reward.CustomDropService;
+import com.plexon.spawners.reward.RewardRollPolicy;
+import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ThreadLocalRandom;
-import net.kyori.adventure.text.minimessage.MiniMessage;
-import org.bukkit.Bukkit;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.atomic.AtomicLong;
 import org.bukkit.GameMode;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
 import org.bukkit.enchantments.Enchantment;
 import org.bukkit.entity.EntityType;
-import org.bukkit.entity.ExperienceOrb;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.EventPriority;
 import org.bukkit.event.Listener;
 import org.bukkit.event.block.BlockBreakEvent;
-import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.plugin.java.JavaPlugin;
 
 public final class SpawnerBreakListener implements Listener {
+    private final JavaPlugin plugin;
     private final PluginSettings settings;
-    private final NativeStackSettings stackSettings;
-    private final EssenceService essenceService;
-    private final SpawnerItemService spawnerItemService;
+    private final EssenceService essence;
+    private final CustomDropService customDrop;
     private final MessageService messages;
-    private final WildStackerCompat wildStackerCompat;
-    private final PerformanceCounters counters;
-    private final ManagedSpawnerRegistry registry;
-    private final SpawnerStateService stateService;
-    private final SpawnerTuning tuning;
-    private final SpawnerStackDisplayService displays;
-    private final MiniMessage miniMessage = MiniMessage.miniMessage();
+    private final WildStackerBridge wildStacker;
+    private final CoreBridge coreBridge;
+    private final Map<BlockKey, ConcurrentLinkedDeque<BreakContext>> pending = new ConcurrentHashMap<>();
+    private final AtomicLong transactionSequence = new AtomicLong();
+    private volatile boolean closed;
 
     public SpawnerBreakListener(
+        final JavaPlugin plugin,
         final PluginSettings settings,
-        final NativeStackSettings stackSettings,
-        final EssenceService essenceService,
-        final SpawnerItemService spawnerItemService,
+        final EssenceService essence,
+        final CustomDropService customDrop,
         final MessageService messages,
-        final WildStackerCompat wildStackerCompat,
-        final PerformanceCounters counters,
-        final ManagedSpawnerRegistry registry,
-        final SpawnerStateService stateService,
-        final SpawnerTuning tuning,
-        final SpawnerStackDisplayService displays
+        final WildStackerBridge wildStacker,
+        final CoreBridge coreBridge
     ) {
+        this.plugin = plugin;
         this.settings = settings;
-        this.stackSettings = stackSettings;
-        this.essenceService = essenceService;
-        this.spawnerItemService = spawnerItemService;
+        this.essence = essence;
+        this.customDrop = customDrop;
         this.messages = messages;
-        this.wildStackerCompat = wildStackerCompat;
-        this.counters = counters;
-        this.registry = registry;
-        this.stateService = stateService;
-        this.tuning = tuning;
-        this.displays = displays;
+        this.wildStacker = wildStacker;
+        this.coreBridge = coreBridge;
     }
 
-    @EventHandler(priority = EventPriority.HIGHEST, ignoreCancelled = true)
-    public void onSpawnerBreak(final BlockBreakEvent event) {
-        counters.blockBreakSeen();
-        if (event.getBlock().getType() != Material.SPAWNER) {
-            counters.nonSpawnerFastReject();
-            return;
-        }
-        if (!settings.breakingEnabled()) {
-            counters.disabledReject();
-            return;
-        }
-        if (!settings.isWorldEnabled(event.getBlock().getWorld())) {
-            counters.worldReject();
-            return;
-        }
-        if (!(event.getBlock().getState() instanceof CreatureSpawner spawner)) {
-            return;
-        }
-        counters.acceptedSpawnerBreak();
+    @EventHandler(priority = EventPriority.LOWEST)
+    public void onPhysicalBreakIntent(final BlockBreakEvent event) {
+        if (closed || event.getBlock().getType() != Material.SPAWNER) return;
+        if (!settings.breakingEnabled() || !settings.isWorldEnabled(event.getBlock().getWorld())) return;
+        if (!(event.getBlock().getState() instanceof CreatureSpawner)) return;
 
+        final StackedSpawner stacked = wildStacker.resolve(event.getBlock().getLocation());
+        if (stacked == null) return;
+
+        final int before = Math.max(1, stacked.getStackAmount());
         final Player player = event.getPlayer();
-        final Location blockLocation = event.getBlock().getLocation();
-        ManagedSpawner managed = registry.find(blockLocation);
-        if (managed == null && stateService.isManaged(spawner)) {
-            managed = stateService.recover(spawner);
-            if (managed != null) {
-                registry.register(managed);
-            }
-        }
+        final EntityType spawnedType = stacked.getSpawnedType();
+        if (spawnedType == null || spawnedType == EntityType.UNKNOWN) return;
+        final SpawnerBreakPolicy.Decision decision = decide(player, spawnedType);
+        final ItemStack oneUnitSnapshot = snapshotRecovery(stacked, 1);
+        final BreakContext context = new BreakContext(
+            BlockKey.of(event.getBlock().getLocation()),
+            event.getBlock().getLocation().clone(),
+            player,
+            spawnedType,
+            before,
+            before == 1 ? 1 : 0,
+            decision,
+            oneUnitSnapshot,
+            oneUnitSnapshot == null ? 0 : 1,
+            transactionSequence.incrementAndGet());
 
-        if (managed != null) {
-            final boolean administrator = player.hasPermission("plexonspawners.admin")
-                || player.hasPermission("plexonspawners.bypass.access");
-            if (!managed.access().canBreak(player.getUniqueId(), managed.ownerId(), administrator)) {
-                event.setCancelled(true);
-                player.sendMessage(miniMessage.deserialize(
-                    "<!italic><#FF6B6B>You do not have permission to break this managed spawner.</#FF6B6B>"));
-                return;
-            }
-            if (stackSettings.enabled()) {
-                if (stackSettings.requireOwner()
-                    && !administrator
-                    && !managed.ownerId().equals(player.getUniqueId())) {
-                    event.setCancelled(true);
-                    player.sendMessage(miniMessage.deserialize(
-                        "<!italic><#FF6B6B>Only the owner or an administrator can break this native spawner stack.</#FF6B6B>"));
-                    return;
-                }
-                handleNativeManagedBreak(event, player, spawner, managed);
-                return;
-            }
-        }
-
-        handleLegacyProviderBreak(event, player, spawner, managed);
+        pending.computeIfAbsent(context.key(), ignored -> new ConcurrentLinkedDeque<>()).addLast(context);
+        coreBridge.schedulePrimary(Duration.ofMillis(50), () -> finalizeFallback(context));
     }
 
-    private void handleNativeManagedBreak(
-        final BlockBreakEvent event,
-        final Player player,
-        final CreatureSpawner spawner,
-        final ManagedSpawner managed
-    ) {
-        if (managed.migrationState().blocksMutation()) {
-            event.setCancelled(true);
-            player.sendMessage(miniMessage.deserialize(
-                "<!italic><#FFB86C>This spawner is awaiting safe stack migration; mutation is blocked.</#FFB86C>"));
+    @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
+    public void onUnstack(final SpawnerUnstackEvent event) {
+        if (closed || event.isAsynchronous()) return;
+        if (!(event.getUnstackSource() instanceof Player player)) return;
+        if (!settings.breakingEnabled() || !settings.isWorldEnabled(event.getSpawner().getWorld())) return;
+
+        final int amount = event.getAmount();
+        final int before = event.getSpawner().getStackAmount();
+        if (amount < 1 || amount > before) return;
+        final EntityType type = event.getSpawner().getSpawnedType();
+        if (type == null || type == EntityType.UNKNOWN) return;
+
+        final BlockKey key = BlockKey.of(event.getSpawner().getLocation());
+        BreakContext context = findMatching(key, player.getUniqueId());
+        final ItemStack authoritativeSnapshot = snapshotRecovery(event.getSpawner(), amount);
+
+        if (context == null) {
+            context = new BreakContext(
+                key, event.getSpawner().getLocation().clone(), player, type, before, amount,
+                decide(player, type), authoritativeSnapshot,
+                authoritativeSnapshot == null ? 0 : amount,
+                transactionSequence.incrementAndGet());
+            pending.computeIfAbsent(key, ignored -> new ConcurrentLinkedDeque<>()).addLast(context);
+            final BreakContext scheduled = context;
+            coreBridge.schedulePrimary(Duration.ofMillis(50), () -> finalizeFallback(scheduled));
             return;
         }
+        context.observeUnstack(before, amount, authoritativeSnapshot);
+    }
 
-        final Qualification qualification = qualification(player);
-        final int logicalAmount = managed.stackAmount();
-        final boolean removeAll = player.isSneaking() ? stackSettings.sneakBreakAll() : stackSettings.normalBreakAll();
-        final int removedAmount = removeAll ? logicalAmount : 1;
-        final int remaining = logicalAmount - removedAmount;
-        final int experience = settings.dropExperience() ? Math.max(0, event.getExpToDrop()) : 0;
+    @EventHandler(priority = EventPriority.HIGHEST)
+    public void onDrop(final SpawnerDropEvent event) {
+        if (closed) return;
+        final Player player = event.getPlayer();
+        if (player == null) return;
 
-        event.setCancelled(true);
-        event.setDropItems(false);
-        event.setExpToDrop(0);
+        final BreakContext context = findMatching(
+            BlockKey.of(event.getSpawner().getLocation()), player.getUniqueId());
+        if (context == null || context.amount() < 1) return;
+        if (!context.completion().complete(successOutcome(context.decision()))) return;
+        remove(context);
 
-        if (remaining > 0) {
-            final ManagedSpawner updated = registry.updateStackAmount(managed.id(), remaining);
-            if (updated == null || !stateService.apply(spawner, updated, tuning.tier(updated.tier()))) {
-                if (updated != null) {
-                    registry.updateStackAmount(managed.id(), logicalAmount);
-                }
-                player.sendMessage(miniMessage.deserialize(
-                    "<!italic><#FF6B6B>The stack could not be updated safely; nothing was removed.</#FF6B6B>"));
-                return;
+        if (context.decision().recoverSpawner()) {
+            ItemStack recovered = context.recoveryItemFor(context.amount());
+            if (recovered == null || recovered.getType().isAir()) {
+                recovered = snapshotRecovery(event.getSpawner(), context.amount());
             }
-            displays.refresh(updated);
+            if (recovered != null && !recovered.getType().isAir()) {
+                event.setItemStack(recovered);
+                sendRecovered(context);
+                fireRecovered(context, recovered);
+            }
         } else {
-            displays.remove(managed);
-            registry.remove(managed.id());
-            event.getBlock().setType(Material.AIR, false);
+            event.setItemStack(new ItemStack(Material.AIR));
         }
-
-        damageTool(player);
-        awardExperience(event, experience);
-        if (player.getGameMode() == GameMode.CREATIVE && !stackSettings.creativeDropOnBreak()) {
-            return;
-        }
-        handleOutcome(event, player, managed.type(), managed.tier(), qualification,
-            false, removedAmount);
+        finalizeRewardsAndEvent(context);
     }
 
-    private void handleLegacyProviderBreak(
-        final BlockBreakEvent event,
-        final Player player,
-        final CreatureSpawner spawner,
-        final ManagedSpawner managed
-    ) {
-        EntityType entityType = managed == null ? spawner.getSpawnedType() : managed.type();
-        if (entityType == EntityType.UNKNOWN) {
-            event.setCancelled(true);
-            player.sendMessage(miniMessage.deserialize(
-                "<!italic><#FF6B6B>This spawner has an invalid UNKNOWN entity type; the break was cancelled to preserve it.</#FF6B6B>"));
+    private void finalizeFallback(final BreakContext context) {
+        if (closed || !plugin.isEnabled()) {
+            remove(context);
             return;
         }
-        if (entityType == null) {
-            entityType = EntityType.PIG;
-        }
-        final int recoveredTier = managed == null ? 1 : managed.tier();
-        final Qualification qualification = qualification(player);
-
-        if (!settings.takeOwnership()) {
-            event.setDropItems(false);
-            if (!settings.dropExperience()) {
-                event.setExpToDrop(0);
-            }
-            handleOutcome(event, player, entityType, recoveredTier, qualification, false, 1);
+        if (context.completion().isComplete()) {
+            remove(context);
             return;
         }
 
-        final int experience = settings.dropExperience() ? Math.max(0, event.getExpToDrop()) : 0;
-        final WildStackerCompat.Result stackResult = wildStackerCompat.unstackOne(spawner, player);
-        switch (stackResult) {
-            case NOT_INSTALLED -> counters.wildStackerNotInstalled();
-            case NOT_STACKED -> counters.wildStackerNotStacked();
-            case SUCCESS -> counters.wildStackerSuccess();
-            case CANCELLED -> counters.wildStackerCancelled();
-            case UNAVAILABLE -> counters.wildStackerDegraded();
-        }
-        if (stackResult == WildStackerCompat.Result.UNAVAILABLE || stackResult == WildStackerCompat.Result.CANCELLED) {
+        final StackedSpawner currentSpawner = wildStacker.resolve(context.location());
+        final boolean blockStillSpawner = context.location().getBlock().getType() == Material.SPAWNER;
+        final Integer currentAmount = currentSpawner == null ? null : Math.max(0, currentSpawner.getStackAmount());
+        final int removed = BreakReconciliation.confirmedRemovedAmount(
+            context.beforeAmount(), context.amount(), blockStillSpawner, currentAmount);
+
+        if (removed < 1) {
+            if (context.completion().complete(BreakCompletionGate.Outcome.DENIED_OR_UNCHANGED)) remove(context);
             return;
         }
 
-        event.setCancelled(true);
-        event.setDropItems(false);
-        event.setExpToDrop(0);
-        if (stackResult == WildStackerCompat.Result.NOT_INSTALLED || stackResult == WildStackerCompat.Result.NOT_STACKED) {
-            event.getBlock().setType(Material.AIR, false);
-            if (managed != null) {
-                displays.remove(managed);
-                registry.remove(managed.id());
-            }
-        }
-        damageTool(player);
-        awardExperience(event, experience);
-        if (player.getGameMode() == GameMode.CREATIVE && !settings.creativeDrops()) {
-            return;
-        }
-        handleOutcome(event, player, entityType, recoveredTier, qualification,
-            stackResult == WildStackerCompat.Result.SUCCESS, 1);
-    }
-
-    private Qualification qualification(final Player player) {
-        final ItemStack tool = player.getInventory().getItemInMainHand();
-        final int silkLevel = tool.getEnchantmentLevel(Enchantment.SILK_TOUCH);
-        final int requiredLevel = settings.requiredSilkTouchLevel();
-        final boolean needsBypass = requiredLevel > 0 && silkLevel < requiredLevel && settings.silkBypassPermissionEnabled();
-        final boolean usedBypass = needsBypass && player.hasPermission("plexonspawners.bypass.silk");
-        final boolean qualified = requiredLevel <= 0 || silkLevel >= requiredLevel || usedBypass;
-        return new Qualification(silkLevel, usedBypass, qualified);
-    }
-
-    private void handleOutcome(
-        final BlockBreakEvent event,
-        final Player player,
-        final EntityType entityType,
-        final int recoveredTier,
-        final Qualification qualification,
-        final boolean wildStackerManaged,
-        final int recoveredAmount
-    ) {
-        if (qualification.qualified()) {
-            if (!settings.dropSpawnerWhenQualified()) {
-                return;
-            }
-            final Location sourceLocation = event.getBlock().getLocation();
-            deliverSpawnerItems(player, sourceLocation, entityType, recoveredTier, recoveredAmount);
-            counters.qualifiedRecovery();
-            final String transactionId = newTransactionId();
-            fireRecoveredEvent(player, entityType, recoveredAmount, sourceLocation,
-                qualification.silkLevel(), qualification.usedBypass(), wildStackerManaged, transactionId);
-            if (settings.breakSuccessMessages()) {
-                messages.send(player, "spawner-recovered", Map.of("mob", SpawnerItemService.pretty(entityType)));
+        context.confirmFallbackAmount(removed);
+        final ItemStack fallbackRecovery = context.decision().recoverSpawner()
+            ? context.recoveryItemFor(context.amount()) : null;
+        if (context.decision().recoverSpawner()
+            && (fallbackRecovery == null || fallbackRecovery.getType().isAir())) {
+            if (context.completion().complete(BreakCompletionGate.Outcome.ABORTED)) {
+                remove(context);
+                plugin.getLogger().severe(
+                    "Could not finalize authoritative WildStacker recovery for break transaction "
+                        + context.sequence() + " at " + context.key()
+                        + "; no compatible pre-removal item snapshot exists.");
+                fireBreakFinalized(context, PlexonSpawnerBreakFinalizedEvent.Outcome.ABORTED);
             }
             return;
         }
 
-        if (!settings.essenceEnabled()) {
-            return;
-        }
+        if (!context.completion().complete(successOutcome(context.decision()))) return;
+        remove(context);
 
-        final PluginSettings.EssenceRule rule = settings.essenceRule(entityType);
-        final EssenceRewardPolicy.Award award = EssenceRewardPolicy.evaluate(
-            recoveredAmount,
-            rule.amount(),
-            rule.chance(),
-            () -> ThreadLocalRandom.current().nextDouble(100.0D));
-        for (int index = 0; index < award.rolls(); index++) {
-            counters.essenceRoll();
+        if (fallbackRecovery != null) {
+            deliverSpawnerItem(context.player(), context.location(), fallbackRecovery);
+            sendRecovered(context);
+            fireRecovered(context, fallbackRecovery);
         }
-        if (!award.awarded()) {
-            return;
-        }
-
-        final Location sourceLocation = event.getBlock().getLocation();
-        deliverEssence(player, sourceLocation, award.totalAmount());
-        counters.essenceWin();
-        counters.essenceLogicalAmountAwarded(award.totalAmount());
-        final String transactionId = newTransactionId();
-        fireEssenceEvent(player, entityType, sourceLocation, award.totalAmount(), transactionId);
-        if (settings.breakFailedMessages()) {
-            messages.send(player, "essence-dropped", Map.of("amount", Integer.toString(award.totalAmount())));
-        }
+        finalizeRewardsAndEvent(context);
     }
 
-    private void deliverSpawnerItems(
-        final Player player,
-        final Location sourceLocation,
-        final EntityType type,
-        final int tier,
-        final int amount
+    private SpawnerBreakPolicy.Decision decide(final Player player, final EntityType spawnedType) {
+        final int silkLevel =
+            player.getInventory().getItemInMainHand().getEnchantmentLevel(Enchantment.SILK_TOUCH);
+        return SpawnerBreakPolicy.decide(
+            player.getGameMode() == GameMode.CREATIVE,
+            settings.creativeRecoverSpawner(),
+            settings.creativeAwardEssence(),
+            settings.creativeAwardCustomItem(),
+            silkLevel,
+            settings.requiredSilkTouchLevel(),
+            settings.silkBypassPermissionEnabled(),
+            player.hasPermission("plexonspawners.bypass.silk"),
+            settings.nonSilkRewardMode(spawnedType),
+            settings.essenceEnabled(),
+            settings.customDropEnabled());
+    }
+
+    private ItemStack snapshotRecovery(final StackedSpawner stackedSpawner, final int amount) {
+        final ItemStack authoritative = wildStacker.createSpawnerItem(stackedSpawner, amount);
+        return authoritative == null ? null : authoritative.clone();
+    }
+
+    private static BreakCompletionGate.Outcome successOutcome(final SpawnerBreakPolicy.Decision decision) {
+        if (decision.recoverSpawner()) return BreakCompletionGate.Outcome.RECOVERED;
+        if (decision.awardEssence() || decision.awardCustomItem()) return BreakCompletionGate.Outcome.REWARDED;
+        return BreakCompletionGate.Outcome.NO_REWARD_POLICY;
+    }
+
+    private void finalizeRewardsAndEvent(final BreakContext context) {
+        try {
+            if (context.decision().awardEssence()) awardEssence(context);
+            if (context.decision().awardCustomItem()) awardCustom(context);
+        } catch (final RuntimeException exception) {
+            plugin.getLogger().log(java.util.logging.Level.SEVERE,
+                "Reward delivery failed after committed spawner break transaction "
+                    + context.sequence(), exception);
+        }
+        final PlexonSpawnerBreakFinalizedEvent.Outcome outcome = context.decision().recoverSpawner()
+            ? PlexonSpawnerBreakFinalizedEvent.Outcome.RECOVERED
+            : (context.decision().awardEssence() || context.decision().awardCustomItem()
+                ? PlexonSpawnerBreakFinalizedEvent.Outcome.REWARDED
+                : PlexonSpawnerBreakFinalizedEvent.Outcome.NO_REWARD_POLICY);
+        fireBreakFinalized(context, outcome);
+    }
+
+    private void awardEssence(final BreakContext context) {
+        final RewardRollPolicy.Award award = essence.evaluate(context.spawnedType(), context.amount());
+        if (!award.awarded()) return;
+        final long delivered = essence.deliver(context.player(), context.location(), award.totalAmount());
+        if (delivered <= 0L) return;
+        if (settings.essenceAwardedMessage()) {
+            messages.send(context.player(), "essence-awarded", Map.of(
+                "amount", Long.toString(delivered), "mob", pretty(context.spawnedType().name())));
+        }
+        plugin.getServer().getPluginManager().callEvent(new PlexonSpawnerRewardFinalizedEvent(
+            context.player(), context.spawnedType(), context.amount(),
+            PlexonSpawnerRewardFinalizedEvent.RewardKind.ESSENCE, delivered, context.sequence()));
+    }
+
+    private void awardCustom(final BreakContext context) {
+        final RewardRollPolicy.Award award = customDrop.evaluate(context.spawnedType(), context.amount());
+        if (!award.awarded()) return;
+        final long delivered = customDrop.deliver(context.player(), context.location(), award.totalAmount());
+        if (delivered <= 0L) return;
+        if (settings.customDropAwardedMessage()) {
+            messages.send(context.player(), "custom-drop-awarded", Map.of(
+                "amount", Long.toString(delivered), "mob", pretty(context.spawnedType().name())));
+        }
+        plugin.getServer().getPluginManager().callEvent(new PlexonSpawnerRewardFinalizedEvent(
+            context.player(), context.spawnedType(), context.amount(),
+            PlexonSpawnerRewardFinalizedEvent.RewardKind.CUSTOM_ITEM, delivered, context.sequence()));
+    }
+
+    private void sendRecovered(final BreakContext context) {
+        if (!settings.silkRecoveredMessage()) return;
+        messages.send(context.player(), "spawner-recovered", Map.of(
+            "amount", Integer.toString(context.amount()), "mob", pretty(context.spawnedType().name())));
+    }
+
+    private void fireRecovered(final BreakContext context, final ItemStack item) {
+        plugin.getServer().getPluginManager().callEvent(new PlexonSpawnerRecoveredEvent(
+            context.player(), context.spawnedType(), context.amount(), item, context.sequence()));
+    }
+
+    private void fireBreakFinalized(
+        final BreakContext context,
+        final PlexonSpawnerBreakFinalizedEvent.Outcome outcome
     ) {
-        final ItemStack[] stacks = spawnerItemService.createSpawnerStacks(type, amount, tier);
-        player.getInventory().addItem(stacks).values().forEach(leftover ->
-            sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover));
+        plugin.getServer().getPluginManager().callEvent(new PlexonSpawnerBreakFinalizedEvent(
+            context.player(), context.spawnedType(), context.amount(), outcome, context.sequence()));
     }
 
-    private void fireRecoveredEvent(
-        final Player player,
-        final EntityType entityType,
-        final int amount,
-        final Location sourceLocation,
-        final int silkLevel,
-        final boolean usedBypass,
-        final boolean wildStackerManaged,
-        final String transactionId
-    ) {
-        requirePrimaryThread();
-        Bukkit.getPluginManager().callEvent(new PlexonSpawnerRecoveredEvent(
-            player, entityType, amount, sourceLocation, silkLevel, usedBypass, wildStackerManaged,
-            transactionId + ":recovered", transactionId));
-    }
-
-    private void fireEssenceEvent(
-        final Player player,
-        final EntityType entityType,
-        final Location sourceLocation,
-        final int amount,
-        final String transactionId
-    ) {
-        requirePrimaryThread();
-        final PlexonSpawnerEssenceAwardedEvent.DeliveryMode deliveryMode =
-            settings.essenceDelivery() == PluginSettings.EssenceDelivery.INVENTORY
-                ? PlexonSpawnerEssenceAwardedEvent.DeliveryMode.INVENTORY
-                : PlexonSpawnerEssenceAwardedEvent.DeliveryMode.GROUND;
-        Bukkit.getPluginManager().callEvent(new PlexonSpawnerEssenceAwardedEvent(
-            player, entityType, amount, deliveryMode, sourceLocation,
-            transactionId + ":essence", transactionId));
-    }
-
-    private static void awardExperience(final BlockBreakEvent event, final int experience) {
-        if (experience <= 0) {
-            return;
-        }
-        final Location xpLocation = event.getBlock().getLocation().clone().add(0.5, 0.5, 0.5);
-        final ExperienceOrb orb = event.getBlock().getWorld().spawn(xpLocation, ExperienceOrb.class);
-        orb.setExperience(experience);
-    }
-
-    private static void requirePrimaryThread() {
-        if (!Bukkit.isPrimaryThread()) {
-            throw new IllegalStateException("PlexonSpawners public spawner events must fire on the primary server thread");
+    private void deliverSpawnerItem(final Player player, final Location location, final ItemStack item) {
+        final Map<Integer, ItemStack> overflow = player.getInventory().addItem(item);
+        for (final ItemStack extra : overflow.values()) {
+            location.getWorld().dropItemNaturally(location, extra);
         }
     }
 
-    private static void damageTool(final Player player) {
-        if (player.getGameMode() == GameMode.CREATIVE) {
-            return;
+    private BreakContext findMatching(final BlockKey key, final UUID playerId) {
+        final ConcurrentLinkedDeque<BreakContext> queue = pending.get(key);
+        if (queue == null) return null;
+        for (final BreakContext context : queue) {
+            if (context.player().getUniqueId().equals(playerId) && !context.completion().isComplete()) {
+                return context;
+            }
         }
-        final ItemStack mainHand = player.getInventory().getItemInMainHand();
-        if (mainHand.getType().isAir()) {
-            return;
-        }
-        player.damageItemStack(EquipmentSlot.HAND, 1);
+        return null;
     }
 
-    private void deliverEssence(final Player player, final Location sourceLocation, final int totalAmount) {
-        final ItemStack[] stacks = essenceService.createStacks(totalAmount);
-        counters.essenceItemStacksCreated(stacks.length);
-        if (settings.essenceDelivery() == PluginSettings.EssenceDelivery.INVENTORY) {
-            final Map<Integer, ItemStack> leftovers = player.getInventory().addItem(stacks);
-            counters.essenceGroundEntitiesCreated(leftovers.size());
-            leftovers.values().forEach(leftover -> sourceLocation.getWorld().dropItemNaturally(sourceLocation, leftover));
-            return;
+    private void remove(final BreakContext context) {
+        final ConcurrentLinkedDeque<BreakContext> queue = pending.get(context.key());
+        if (queue == null) return;
+        queue.remove(context);
+        if (queue.isEmpty()) pending.remove(context.key(), queue);
+    }
+
+    public int pendingCount() {
+        int count = 0;
+        for (final ConcurrentLinkedDeque<BreakContext> queue : pending.values()) count += queue.size();
+        return count;
+    }
+
+    public void shutdown() {
+        closed = true;
+        pending.clear();
+    }
+
+    private static String pretty(final String raw) {
+        final String normalized = raw.toLowerCase(java.util.Locale.ROOT).replace('_', ' ');
+        return normalized.isEmpty() ? raw
+            : Character.toUpperCase(normalized.charAt(0)) + normalized.substring(1);
+    }
+
+    private static final class BreakContext {
+        private final BlockKey key;
+        private final Location location;
+        private final Player player;
+        private final EntityType spawnedType;
+        private final SpawnerBreakPolicy.Decision decision;
+        private final BreakCompletionGate completion = new BreakCompletionGate();
+        private final long sequence;
+        private int beforeAmount;
+        private int amount;
+        private ItemStack recoveryItem;
+        private int recoverySnapshotAmount;
+
+        private BreakContext(
+            final BlockKey key,
+            final Location location,
+            final Player player,
+            final EntityType spawnedType,
+            final int beforeAmount,
+            final int amount,
+            final SpawnerBreakPolicy.Decision decision,
+            final ItemStack recoveryItem,
+            final int recoverySnapshotAmount,
+            final long sequence
+        ) {
+            this.key = key;
+            this.location = location;
+            this.player = player;
+            this.spawnedType = spawnedType;
+            this.beforeAmount = beforeAmount;
+            this.amount = amount;
+            this.decision = decision;
+            this.recoveryItem = recoveryItem == null ? null : recoveryItem.clone();
+            this.recoverySnapshotAmount = recoveryItem == null ? 0 : recoverySnapshotAmount;
+            this.sequence = sequence;
         }
-        counters.essenceGroundEntitiesCreated(stacks.length);
-        for (final ItemStack stack : stacks) {
-            sourceLocation.getWorld().dropItemNaturally(sourceLocation, stack);
+
+        private void observeUnstack(final int beforeAmount, final int amount, final ItemStack recoveryItem) {
+            this.beforeAmount = beforeAmount;
+            this.amount = amount;
+            if (recoveryItem != null && !recoveryItem.getType().isAir()) {
+                this.recoveryItem = recoveryItem.clone();
+                this.recoverySnapshotAmount = amount;
+            }
+        }
+
+        private void confirmFallbackAmount(final int amount) {
+            if (this.amount < 1) this.amount = amount;
+        }
+        private BlockKey key() { return key; }
+        private Location location() { return location; }
+        private Player player() { return player; }
+        private EntityType spawnedType() { return spawnedType; }
+        private int beforeAmount() { return beforeAmount; }
+        private int amount() { return amount; }
+        private SpawnerBreakPolicy.Decision decision() { return decision; }
+        private BreakCompletionGate completion() { return completion; }
+        private long sequence() { return sequence; }
+        private ItemStack recoveryItemFor(final int requested) {
+            if (recoveryItem == null || recoverySnapshotAmount != requested) return null;
+            return recoveryItem.clone();
         }
     }
 
-    private static String newTransactionId() { return UUID.randomUUID().toString(); }
-
-    private record Qualification(int silkLevel, boolean usedBypass, boolean qualified) {}
+    private record BlockKey(UUID worldId, int x, int y, int z) {
+        private static BlockKey of(final Location location) {
+            return new BlockKey(
+                location.getWorld().getUID(),
+                location.getBlockX(),
+                location.getBlockY(),
+                location.getBlockZ());
+        }
+    }
 }

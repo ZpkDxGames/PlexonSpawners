@@ -3,45 +3,41 @@ version: '${version}'
 main: com.plexon.spawners.PlexonSpawners
 api-version: '26.2'
 author: ZpkDxGames
-description: Native stacked managed spawners, tier upgrades, migration, Essence recovery and first-party spawn provenance.
+description: WildStacker-authoritative spawner recovery, rewards, policy API and administration for PlexonCraft.
 prefix: PlexonSpawners
 
+depend:
+  - WildStacker
 softdepend:
   - PlexonCore
-  - WildStacker
 
 commands:
   pspawners:
-    description: PlexonSpawners administration command.
-    usage: /pspawners <admin|status|migration|reload|give|essence>
+    description: PlexonSpawners administration and integration status.
+    usage: /pspawners <admin|give|status|reload>
     aliases: [plexonspawners, pspawner]
-    permission: plexonspawners.admin
 
 permissions:
   plexonspawners.admin:
-    description: Access to PlexonSpawners administration commands and managed-spawner administration.
+    description: Base PlexonSpawners administration permission.
     default: op
     children:
       plexonspawners.admin.gui: true
-      plexonspawners.admin.reload: true
       plexonspawners.admin.give: true
-      plexonspawners.admin.essence: true
-      plexonspawners.bypass.access: true
+      plexonspawners.admin.reload: true
+      plexonspawners.admin.status: true
   plexonspawners.admin.gui:
-    description: Open and use the in-game admin editor.
-    default: op
-  plexonspawners.admin.reload:
-    description: Reload PlexonSpawners configuration.
+    description: Open and use the PlexonSpawners policy administration GUI.
     default: op
   plexonspawners.admin.give:
-    description: Give PlexonSpawners spawner items.
+    description: Give WildStacker-authoritative spawner items to online players.
     default: op
-  plexonspawners.admin.essence:
-    description: Configure or give Spawner Essence.
+  plexonspawners.admin.reload:
+    description: Reload PlexonSpawners policy configuration.
+    default: op
+  plexonspawners.admin.status:
+    description: View PlexonSpawners and WildStacker/Core integration status.
     default: op
   plexonspawners.bypass.silk:
-    description: Bypass the configured Silk Touch level only when breaking.allow-silk-bypass-permission is enabled.
-    default: false
-  plexonspawners.bypass.access:
-    description: Bypass managed-spawner ownership and access restrictions.
+    description: Bypass configured Silk Touch only when breaking.allow-silk-bypass-permission is enabled.
     default: false
