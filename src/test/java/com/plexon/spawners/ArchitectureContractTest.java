@@ -33,7 +33,8 @@ final class ArchitectureContractTest {
                 assertFalse(source.contains("ManagedSpawnerRegistry"), path.toString());
                 assertFalse(source.contains("PlayerInteractEvent"), path.toString());
                 assertFalse(source.contains("RIGHT_CLICK_BLOCK"), path.toString());
-                assertFalse(source.contains("getNearbyEntities"), path.toString());\n                assertFalse(source.contains("runUnstack("), path.toString());
+                assertFalse(source.contains("getNearbyEntities"), path.toString());
+                assertFalse(source.contains("runUnstack("), path.toString());
             }
         }
     }
