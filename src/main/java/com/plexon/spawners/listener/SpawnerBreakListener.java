@@ -99,7 +99,7 @@ public final class SpawnerBreakListener implements Listener {
 
     @EventHandler(priority = EventPriority.MONITOR, ignoreCancelled = true)
     public void onUnstack(final SpawnerUnstackEvent event) {
-        if (closed || wildStacker.isWithdrawalInProgress() || event.isAsynchronous()) return;
+        if (closed || event.isAsynchronous()) return;
         if (!(event.getUnstackSource() instanceof Player player)) return;
         if (!settings.breakingEnabled() || !settings.isWorldEnabled(event.getSpawner().getWorld())) return;
 

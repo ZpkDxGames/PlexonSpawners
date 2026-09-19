@@ -16,7 +16,7 @@ final class ArchitectureContractTest {
         assertTrue(pluginYml.contains("depend:\n  - WildStacker"));
         assertTrue(pluginYml.contains("softdepend:\n  - PlexonCore"));
         assertTrue(build.contains("com.bgsoftware:WildStackerAPI:2026.2"));
-        assertTrue(build.contains("PlexonCore-2.1.0.jar"));
+        assertTrue(build.contains("val coreVersion = \"2.1.0\""));
         assertTrue(build.contains("7ee823ded87d5be9c62426b04571c0d0d6b11c138575ca2c91838586c9f7576c"));
         assertTrue(build.contains("compileOnly(files(coreJar))"));
         assertTrue(build.contains("PlexonCore runtime classes must not be shaded"));
@@ -33,7 +33,7 @@ final class ArchitectureContractTest {
                 assertFalse(source.contains("ManagedSpawnerRegistry"), path.toString());
                 assertFalse(source.contains("PlayerInteractEvent"), path.toString());
                 assertFalse(source.contains("RIGHT_CLICK_BLOCK"), path.toString());
-                assertFalse(source.contains("getNearbyEntities"), path.toString());
+                assertFalse(source.contains("getNearbyEntities"), path.toString());\n                assertFalse(source.contains("runUnstack("), path.toString());
             }
         }
     }

@@ -48,10 +48,14 @@ jobs:
           test "$VERSION" = '4.0.0'
           git merge-base --is-ancestor "$BASELINE_STABLE_SHA" HEAD
           grep -Fq "WildStackerAPI:$WILDSTACKER_API_VERSION" build.gradle.kts
-          grep -Fq "PlexonCore-$PLEXONCORE_VERSION.jar" build.gradle.kts
+          grep -Fq 'val coreVersion = "2.1.0"' build.gradle.kts
           grep -Fq "$PLEXONCORE_SHA256" build.gradle.kts
-          grep -Fq $'depend:\n  - WildStacker' src/main/resources/plugin.yml
-          grep -Fq $'softdepend:\n  - PlexonCore' src/main/resources/plugin.yml
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('src/main/resources/plugin.yml').read_text(encoding='utf-8')
+          assert 'depend:\n  - WildStacker' in text
+          assert 'softdepend:\n  - PlexonCore' in text
+          PY
           test ! -d src/main/java/com/plexon/spawners/managed
           test ! -d src/main/java/com/plexon/spawners/compat
           ! grep -R "ManagedSpawnerRegistry\|PlayerInteractEvent\|RIGHT_CLICK_BLOCK" src/main/java/com/plexon/spawners

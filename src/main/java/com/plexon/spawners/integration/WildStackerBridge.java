@@ -1,19 +1,19 @@
 package com.plexon.spawners.integration;
 
 import com.bgsoftware.wildstacker.api.WildStackerAPI;
-import com.bgsoftware.wildstacker.api.enums.UnstackResult;
 import com.bgsoftware.wildstacker.api.objects.StackedSpawner;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.CreatureSpawner;
-import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.java.JavaPlugin;
 
+/**
+ * Read/representation bridge only. WildStacker owns every stack mutation.
+ */
 public final class WildStackerBridge {
     private final String version;
-    private final ThreadLocal<Integer> withdrawalDepth = ThreadLocal.withInitial(() -> 0);
 
     public WildStackerBridge(final JavaPlugin plugin) {
         final Plugin dependency = plugin.getServer().getPluginManager().getPlugin("WildStacker");
@@ -35,9 +35,8 @@ public final class WildStackerBridge {
         if (location.getBlock().getType() != Material.SPAWNER) return null;
         if (!(location.getBlock().getState() instanceof CreatureSpawner spawner)) return null;
 
-        // WildStacker intentionally exposes a valid transient StackedSpawner for a physical 1x
-        // spawner even when that object is not cached. Cache membership is therefore not a
-        // validity check and must never be used to discard a singular physical spawner.
+        // A physical singular spawner may be represented by a valid transient/non-cached object.
+        // Cache membership is therefore not a validity check.
         return WildStackerAPI.getStackedSpawner(spawner);
     }
 
@@ -45,20 +44,5 @@ public final class WildStackerBridge {
         if (stackedSpawner == null || amount < 1) return null;
         final ItemStack authoritative = stackedSpawner.getDropItem(amount);
         return authoritative == null ? null : authoritative.clone();
-    }
-
-    public UnstackResult withdraw(final StackedSpawner stackedSpawner, final int amount, final Player player) {
-        final int depth = withdrawalDepth.get();
-        withdrawalDepth.set(depth + 1);
-        try {
-            return stackedSpawner.runUnstack(amount, player);
-        } finally {
-            if (depth == 0) withdrawalDepth.remove();
-            else withdrawalDepth.set(depth);
-        }
-    }
-
-    public boolean isWithdrawalInProgress() {
-        return withdrawalDepth.get() > 0;
     }
 }
